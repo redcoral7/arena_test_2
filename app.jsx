@@ -74,12 +74,12 @@ function App() {
   const channelRef = useRef(null);
   const LOGO_URL = '4.png';
 
-  // --- 상점 아이템 데이터 Fetch 함수 ---
+  // --- 상점 아이템 데이터 Fetch 함수 (가격순 정렬 추가) ---
   const fetchShopItems = async () => {
     const { data, error } = await supabaseClient
       .from('shop_items')
       .select('*')
-      .order('id', { ascending: true });
+      .order('price', { ascending: true }); // ID 대신 price 기준으로 오름차순 정렬
     if (!error) setShopItems(data || []);
   };
 
