@@ -70,7 +70,7 @@ function App() {
     const { data, error } = await supabaseClient
       .from('shop_items')
       .select('*')
-      .order('price', { ascending: false });
+      .order('price', { ascending: true });
     if (!error) setShopItems(data || []);
   };
 
