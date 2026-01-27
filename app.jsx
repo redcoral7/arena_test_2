@@ -184,7 +184,9 @@ function App() {
       if (!mailForm.targetUser) return alert('선물할 대상을 선택해주세요.');
       if (!mailForm.selectedGiftItem) return alert('사용할 아이템을 선택해주세요.');
       
+      // 인벤토리에서 선택한 아이템이 있는지 정확히 확인
       targetInvItem = inventory.find(i => i.item_name === mailForm.selectedGiftItem);
+      
       if (!targetInvItem) {
         return alert('사용할 상품이 없습니다. 상점에서 구매해주시길 바랍니다.');
       }
@@ -203,7 +205,6 @@ function App() {
       if (mailForm.category === '사유서') finalTitle = `[사유서] 대상: ${mailForm.targetUser}`;
       if (mailForm.category === '선물하기') finalTitle = `[선물하기] 대상: ${mailForm.targetUser}`;
 
-      // 파일이 있으면 내용에 구분자와 함께 URL 저장 (하이퍼링크용)
       const finalContent = fileUrl ? `${mailForm.content}\n---FILE_URL---${fileUrl}` : mailForm.content;
       
       const { error } = await supabaseClient.from('mails').insert([{ 
@@ -213,17 +214,32 @@ function App() {
       }]);
 
       if (!error) {
+        // --- [수정] 아이템 삭제 로직 강화 ---
         if (isGift && targetInvItem) {
-          await supabaseClient.from('user_inventory').delete().eq('id', targetInvItem.id);
-          fetchInventory();
+          const { error: deleteError } = await supabaseClient
+            .from('user_inventory')
+            .delete()
+            .eq('id', targetInvItem.id); // ID 기반으로 정확히 삭제
+          
+          if (deleteError) {
+             console.error('아이템 삭제 실패:', deleteError);
+          } else {
+             fetchInventory(); // 인벤토리 상태 갱신
+          }
         }
+        
         alert('전송 완료'); 
         setIsMailFormOpen(false); 
         setSelectedFile(null); 
         setMailForm({ category: '건의사항', title: '', targetUser: '', content: '', selectedGiftItem: '' });
         fetchAllMails(); 
       }
-    } catch (err) { alert('전송 중 오류 발생'); console.error(err); } finally { setIsUploading(false); }
+    } catch (err) { 
+      alert('전송 중 오류 발생'); 
+      console.error(err); 
+    } finally { 
+      setIsUploading(false); 
+    }
   };
 
   const updatePoint = async (code, point) => {
@@ -238,14 +254,9 @@ function App() {
 
   const handleDecision = async (id, decision) => {
     const { error } = await supabaseClient.from('mails').update({ status: decision }).eq('id', id);
-    if (!error) { 
-      alert(`처리가 완료되었습니다. (${decision})`); 
-      setIsDuelModalOpen(false); 
-      fetchAllMails(); 
-    }
+    if (!error) { alert(`처리가 완료되었습니다. (${decision})`); setIsDuelModalOpen(false); fetchAllMails(); }
   };
 
-  // 관리자 전용: 선물하기 승인/거절 처리
   const handleGiftDecision = async (mail, decision) => {
     const { error } = await supabaseClient.from('mails').update({ status: decision }).eq('id', mail.id);
     if (!error) {
@@ -362,33 +373,18 @@ function App() {
               <div className="mt-8">
                 <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-4 italic">Activity Records</h3>
                 <div className="max-h-48 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                  {mails.filter(m => 
-                    (m.sender_code === user.code) || 
-                    (m.receiver_code === user.code && m.status === '처리완료') // 수신자는 처리완료된 것만 보임
-                  ).length > 0 ? (
+                  {mails.filter(m => (m.sender_code === user.code) || (m.receiver_code === user.code && m.status === '처리완료')).length > 0 ? (
                     mails.filter(m => (m.sender_code === user.code) || (m.receiver_code === user.code && m.status === '처리완료')).map(m => {
                       const isReceiver = m.receiver_code === user.code;
                       let displayTitle = m.title;
-                      
-                      // 받은 사람 시점 제목 변환
-                      if (isReceiver && m.title.includes('[선물하기]')) {
-                        displayTitle = `[선물하기] FROM: ${m.sender_code}`;
-                      }
-
+                      if (isReceiver && m.title.includes('[선물하기]')) { displayTitle = `[선물하기] FROM: ${m.sender_code}`; }
                       return (
                         <div key={m.id} className="bg-black border border-zinc-900/50 p-4 flex justify-between items-center">
                           <div className="flex flex-col">
-                            <span className="text-[9px] text-zinc-700 font-black uppercase mb-1">
-                              {m.title.includes('[사유서]') ? '사유서' : m.title.includes('[선물하기]') ? '선물하기' : '건의사항'}
-                            </span>
+                            <span className="text-[9px] text-zinc-700 font-black uppercase mb-1">{m.title.includes('[사유서]') ? '사유서' : m.title.includes('[선물하기]') ? '선물하기' : '건의사항'}</span>
                             <span className="text-zinc-400 text-sm italic">{displayTitle}</span>
                           </div>
-                          <span className={`text-[10px] font-black px-3 py-1 border 
-                            ${(m.status === '서명완료' || m.status === '수락됨' || m.status === '처리완료') ? 'border-green-900 text-green-500' : 
-                              m.status === '거절' || m.status === '거절됨' ? 'border-red-600 text-red-600' : 
-                              'border-zinc-800 text-zinc-700'}`}>
-                            {m.status}
-                          </span>
+                          <span className={`text-[10px] font-black px-3 py-1 border ${(m.status === '서명완료' || m.status === '수락됨' || m.status === '처리완료') ? 'border-green-900 text-green-500' : m.status === '거절' || m.status === '거절됨' ? 'border-red-600 text-red-600' : 'border-zinc-800 text-zinc-700'}`}>{m.status}</span>
                         </div>
                       )
                     })
@@ -443,38 +439,17 @@ function App() {
                     <div className="text-zinc-400 italic text-xl whitespace-pre-wrap leading-relaxed flex-1">
                       {selectedMail.content.split('---FILE_URL---')[0] || "No content."}
                     </div>
-                    
-                    {/* 하이퍼링크 형식 파일 노출 */}
                     {selectedMail.content.includes('---FILE_URL---') && (
                       <div className="pt-6 border-t border-zinc-900/50">
                         <span className="text-[10px] text-red-900 font-black uppercase block mb-2">Attached Intelligence</span>
-                        <a 
-                          href={selectedMail.content.split('---FILE_URL---')[1]} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-red-600 italic hover:text-white underline decoration-red-900 transition-colors"
-                        >
-                          DOWNLOAD_DATA_STREAM.ink
-                        </a>
+                        <a href={selectedMail.content.split('---FILE_URL---')[1]} target="_blank" rel="noopener noreferrer" className="text-red-600 italic hover:text-white underline decoration-red-900 transition-colors">DOWNLOAD_DATA_STREAM.ink</a>
                       </div>
                     )}
                   </div>
-
-                  {/* 선물하기 관리자 처리 버튼 */}
                   {selectedMail.title.includes('[선물하기]') && selectedMail.status === '처리대기' && (
                     <div className="mt-8 flex gap-4">
-                      <button 
-                        onClick={() => handleGiftDecision(selectedMail, '처리완료')}
-                        className="flex-1 bg-red-900 py-4 font-black text-white hover:bg-red-700 uppercase tracking-widest text-sm"
-                      >
-                        Approve & Process
-                      </button>
-                      <button 
-                        onClick={() => handleGiftDecision(selectedMail, '거절됨')}
-                        className="flex-1 border border-zinc-800 py-4 font-black text-zinc-600 hover:text-white hover:border-white uppercase tracking-widest text-sm"
-                      >
-                        Reject Request
-                      </button>
+                      <button onClick={() => handleGiftDecision(selectedMail, '처리완료')} className="flex-1 bg-red-900 py-4 font-black text-white hover:bg-red-700 uppercase tracking-widest text-sm">Approve & Process</button>
+                      <button onClick={() => handleGiftDecision(selectedMail, '거절됨')} className="flex-1 border border-zinc-800 py-4 font-black text-zinc-600 hover:text-white hover:border-white uppercase tracking-widest text-sm">Reject Request</button>
                     </div>
                   )}
                 </div>
@@ -536,23 +511,16 @@ function App() {
               <div className="space-y-8">
                 <div>
                    <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Category</label>
-                   <select className="w-full bg-black border border-zinc-900 p-5 text-zinc-400 font-black uppercase text-xs focus:border-red-900 outline-none" 
-                     value={mailForm.category}
-                     onChange={(e) => setMailForm({...mailForm, category: e.target.value})}>
+                   <select className="w-full bg-black border border-zinc-900 p-5 text-zinc-400 font-black uppercase text-xs focus:border-red-900 outline-none" value={mailForm.category} onChange={(e) => setMailForm({...mailForm, category: e.target.value})}>
                      <option value="건의사항">건의사항 [Opinion]</option>
                      <option value="사유서">사유서 [Duel Statement]</option>
                      <option value="선물하기">선물하기 [Gift Item]</option>
                    </select>
                 </div>
-
-                {/* 선물하기 선택 시 아이템 선택 드롭다운 추가 */}
                 {mailForm.category === '선물하기' && (
                   <div>
                     <label className="text-[9px] text-red-700 font-black uppercase mb-3 block tracking-widest">Select Possession to Use</label>
-                    <select 
-                      className="w-full bg-black border border-red-900/30 p-5 text-white font-black uppercase text-xs focus:border-red-900 outline-none"
-                      onChange={(e) => setMailForm({...mailForm, selectedGiftItem: e.target.value})}
-                    >
+                    <select className="w-full bg-black border border-red-900/30 p-5 text-white font-black uppercase text-xs focus:border-red-900 outline-none" onChange={(e) => setMailForm({...mailForm, selectedGiftItem: e.target.value})}>
                       <option value="">아이템 선택...</option>
                       {inventory.filter(i => i.item_name === '[세트] 목줄+방울' || i.item_name === '[단품] 목줄').map((inv, idx) => (
                         <option key={idx} value={inv.item_name}>{inv.item_name}</option>
@@ -563,7 +531,6 @@ function App() {
                     )}
                   </div>
                 )}
-
                 {mailForm.category === '건의사항' ? (
                   <div>
                     <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Subject</label>
