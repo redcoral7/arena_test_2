@@ -48,7 +48,8 @@ function App() {
   const [user, setUser] = useState(null);
   const [allUsers, setAllUsers] = useState([]);
   const [mails, setMails] = useState([]);
-  const [shopItems, setShopItems] = useState([]); // 상점 아이템 상태 관리
+  const [shopItems, setShopItems] = useState([]); 
+  const [inventory, setInventory] = useState([]); // [추가] 유저 소지품 상태
   const [view, setView] = useState('home'); 
 
   const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -74,25 +75,35 @@ function App() {
   const channelRef = useRef(null);
   const LOGO_URL = '4.png';
 
-  // --- 상점 아이템 데이터 Fetch 함수 (가격순 정렬 추가) ---
+  // --- 상점 아이템 데이터 Fetch ---
   const fetchShopItems = async () => {
     const { data, error } = await supabaseClient
       .from('shop_items')
       .select('*')
-      .order('price', { ascending: true }); // ID 대신 price 기준으로 오름차순 정렬
+      .order('price', { ascending: true });
     if (!error) setShopItems(data || []);
   };
 
-  useEffect(() => { 
-    // 최초 실행 시 상점 데이터 로드
-    fetchShopItems();
+  // --- [추가] 소지품 데이터 Fetch ---
+  const fetchInventory = async () => {
+    if (!user) return;
+    const { data } = await supabaseClient
+      .from('user_inventory')
+      .select('*')
+      .eq('user_code', user.code)
+      .order('created_at', { ascending: false });
+    setInventory(data || []);
+  };
 
+  useEffect(() => { 
+    fetchShopItems();
     if (!user) {
       if (channelRef.current) { supabaseClient.removeChannel(channelRef.current); channelRef.current = null; }
       return;
     }
     fetchUserList(); 
     fetchAllMails();
+    fetchInventory(); // 로그인 시 소지품 로드
     
     const channel = supabaseClient
       .channel('public:arena_v6')
@@ -109,16 +120,6 @@ function App() {
     return () => { if (channelRef.current) supabaseClient.removeChannel(channelRef.current); };
   }, [user?.code]);
 
-  useEffect(() => {
-    if (user && mails.length > 0) {
-      const myDuel = mails.find(m => m.receiver_code === user.code && m.status === '처리대기');
-      if (myDuel) {
-        setPendingDuel(myDuel);
-        setIsDuelModalOpen(true);
-      }
-    }
-  }, [user, mails.length]);
-
   const fetchUserList = async () => {
     if (!user) return;
     const { data } = await supabaseClient.from('users').select('*').order('name', { ascending: true });
@@ -131,9 +132,45 @@ function App() {
     if (!user) return;
     const { data } = await supabaseClient.from('mails').select('*').order('created_at', { ascending: false });
     setMails(data || []);
-    if (selectedMail) {
-      const updated = data.find(m => m.id === selectedMail.id);
-      if (updated) setSelectedMail(updated);
+  };
+
+  // --- [추가] 구매 로직: 포인트 차감 및 소지품 추가 ---
+  const handlePurchase = async () => {
+    if (!user || !selectedItem) return;
+
+    if (user.points < selectedItem.price) {
+      alert('크레딧(PTS)이 부족합니다.');
+      return;
+    }
+
+    if (!confirm(`[${selectedItem.name}] 상품을 구매하시겠습니까?`)) return;
+
+    try {
+      // 1. 포인트 차감 업데이트
+      const { error: userError } = await supabaseClient
+        .from('users')
+        .update({ points: user.points - selectedItem.price })
+        .eq('code', user.code);
+      
+      if (userError) throw userError;
+
+      // 2. 소지품(인벤토리)에 추가
+      const { error: invError } = await supabaseClient
+        .from('user_inventory')
+        .insert([{ 
+          user_code: user.code, 
+          item_name: selectedItem.name 
+        }]);
+
+      if (invError) throw invError;
+
+      alert('구매가 완료되었습니다.');
+      setSelectedItem(null);
+      fetchUserList(); // 포인트 갱신을 위해 유저 정보 다시 불러오기
+      fetchInventory(); // 소지품 목록 갱신
+    } catch (err) {
+      console.error(err);
+      alert('거래 중 오류가 발생했습니다.');
     }
   };
 
@@ -145,7 +182,7 @@ function App() {
 
   const handleLogout = () => {
     if (channelRef.current) { supabaseClient.removeChannel(channelRef.current); channelRef.current = null; }
-    setUser(null); setView('home'); setMails([]); setAllUsers([]); setIsDuelModalOpen(false);
+    setUser(null); setView('home'); setMails([]); setAllUsers([]); setInventory([]); setIsDuelModalOpen(false);
   };
 
   const uploadFile = async (file) => {
@@ -163,26 +200,16 @@ function App() {
     try {
       let fileUrl = '';
       if (selectedFile) fileUrl = await uploadFile(selectedFile);
-
       let receiverCode = mailForm.category === '사유서' ? (mailForm.targetUser.match(/[\[\(](.*?)[\]\)]/) || [])[1] : null;
       let finalTitle = mailForm.category === '사유서' ? `[사유서] 대상: ${mailForm.targetUser}` : `[건의사항] ${mailForm.title}`;
       const finalContent = fileUrl ? `${mailForm.content}\n\n[첨부파일]: ${fileUrl}` : mailForm.content;
-
       const { error } = await supabaseClient.from('mails').insert([{ 
         sender_name: user.name, sender_code: user.code, receiver_code: receiverCode, 
         title: finalTitle, content: finalContent, 
         status: mailForm.category === '사유서' ? '처리대기' : '기타', is_read: false 
       }]);
-
-      if (!error) { 
-        alert('전송 완료'); setIsMailFormOpen(false); setSelectedFile(null); fetchAllMails(); 
-      }
-    } catch (err) {
-      alert('전송 중 오류 발생');
-      console.error(err);
-    } finally {
-      setIsUploading(false);
-    }
+      if (!error) { alert('전송 완료'); setIsMailFormOpen(false); setSelectedFile(null); fetchAllMails(); }
+    } catch (err) { alert('전송 중 오류 발생'); console.error(err); } finally { setIsUploading(false); }
   };
 
   const updatePoint = async (code, point) => {
@@ -197,10 +224,7 @@ function App() {
 
   const handleDecision = async (id, decision) => {
     const { error } = await supabaseClient.from('mails').update({ status: decision }).eq('id', id);
-    if (!error) {
-      alert(`결투 신청을 ${decision === '서명완료' ? '수락' : '거절'}했습니다.`);
-      setIsDuelModalOpen(false); fetchAllMails();
-    }
+    if (!error) { alert(`결투 신청을 ${decision === '서명완료' ? '수락' : '거절'}했습니다.`); setIsDuelModalOpen(false); fetchAllMails(); }
   };
 
   return (
@@ -273,17 +297,15 @@ function App() {
       </div>
 
       <DuelRequestModal 
-        isOpen={isDuelModalOpen}
-        mailData={pendingDuel}
-        onAccept={(id) => handleDecision(id, '서명완료')}
-        onReject={(id) => handleDecision(id, '거절')}
+        isOpen={isDuelModalOpen} mailData={pendingDuel}
+        onAccept={(id) => handleDecision(id, '서명완료')} onReject={(id) => handleDecision(id, '거절')}
       />
 
-      {/* 유저 프로필 모달 */}
+      {/* 유저 프로필 모달 (소지품란 추가) */}
       {isUserProfileOpen && user && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/98 p-4 backdrop-blur-3xl">
           <div className="bg-[#050505] border-2 border-red-700 w-full max-w-2xl p-1 shadow-2xl animate-in zoom-in-95">
-            <div className="border border-red-900/30 p-10">
+            <div className="border border-red-900/30 p-10 max-h-[90vh] overflow-y-auto custom-scrollbar">
               <div className="flex justify-between items-start mb-10">
                 <div>
                   <span className="text-red-900 font-black text-[10px] tracking-[0.5em] uppercase block mb-2">{user.code}</span>
@@ -291,13 +313,31 @@ function App() {
                 </div>
                 <button onClick={() => setIsUserProfileOpen(false)} className="text-zinc-800 hover:text-white text-4xl transition-colors">✕</button>
               </div>
-              <div className="bg-black border border-zinc-900 p-10 flex justify-between items-center mb-12 shadow-inner">
+              <div className="bg-black border border-zinc-900 p-8 flex justify-between items-center mb-8 shadow-inner">
                   <span className="text-zinc-600 font-black uppercase text-[10px] tracking-widest">Available Balance</span>
-                  <span className="text-6xl font-black text-red-600 italic tracking-tighter">{user.points.toLocaleString()} <span className="text-sm not-italic text-zinc-700 ml-2">PTS</span></span>
+                  <span className="text-4xl font-black text-red-600 italic tracking-tighter">{user.points.toLocaleString()} <span className="text-xs not-italic text-zinc-700 ml-2">PTS</span></span>
               </div>
+
+              {/* [추가] 소지품란 (Possessions) */}
+              <div className="mb-10">
+                <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-4 italic">Possessions</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {inventory.length > 0 ? (
+                    inventory.map((inv, idx) => (
+                      <div key={idx} className="bg-zinc-950 border border-zinc-900 p-4 flex items-center gap-3">
+                        <div className="w-1.5 h-1.5 bg-red-700 rounded-full shadow-[0_0_5px_rgba(185,28,28,0.8)]"></div>
+                        <span className="text-zinc-400 text-xs italic font-bold uppercase tracking-tight">{inv.item_name}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-2 text-zinc-800 italic text-[10px] py-6 text-center border border-dashed border-zinc-900 uppercase tracking-widest">No Items Acquired</div>
+                  )}
+                </div>
+              </div>
+
               <div className="mt-8">
-                <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-4 italic">Records</h3>
-                <div className="max-h-64 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-4 italic">Activity Records</h3>
+                <div className="max-h-48 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                   {mails.filter(m => m.sender_code === user.code || m.receiver_code === user.code).length > 0 ? (
                     mails.filter(m => m.sender_code === user.code || m.receiver_code === user.code).map(m => (
                       <div key={m.id} className="bg-black border border-zinc-900/50 p-4 flex justify-between items-center">
@@ -322,7 +362,7 @@ function App() {
         </div>
       )}
 
-      {/* 관리자 메일함 */}
+      {/* 관리자 메일함, 유저 관리, 전송 센터 모달 (기존 동일) */}
       {isAdminMailOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/98 p-4 backdrop-blur-md">
           <div className="bg-black border-2 border-red-700 w-full max-w-6xl h-[850px] flex flex-col shadow-2xl">
@@ -344,14 +384,7 @@ function App() {
                         <span className="text-zinc-500 text-xl italic group-hover:text-white transition-colors">{m.title}</span>
                       </div>
                       <div className="flex items-center gap-10">
-                        {m.status && (
-                          <span className={`px-5 py-1 text-[11px] font-black border 
-                            ${m.status === '서명완료' || m.status === '수락됨' ? 'border-green-900 text-green-600' : 
-                              m.status === '거절' || m.status === '거절됨' ? 'border-red-900 text-red-700' : 
-                              'border-red-800 text-red-600'}`}>
-                            {m.status}
-                          </span>
-                        )}
+                        {m.status && <span className={`px-5 py-1 text-[11px] font-black border ${m.status === '서명완료' || m.status === '수락됨' ? 'border-green-900 text-green-600' : m.status === '거절' || m.status === '거절됨' ? 'border-red-900 text-red-700' : 'border-red-800 text-red-600'}`}>{m.status}</span>}
                         <span className="text-xs text-zinc-800 font-mono tracking-tighter">{new Date(m.created_at).toLocaleDateString()}</span>
                       </div>
                     </div>
@@ -377,7 +410,6 @@ function App() {
         </div>
       )}
 
-      {/* 유저 관리 모달 */}
       {isUserMgmtOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-4 backdrop-blur-md">
           <div className="bg-[#050505] border-2 border-red-700 w-full max-w-5xl h-[80vh] flex flex-col shadow-[0_0_50px_rgba(185,28,28,0.2)]">
@@ -409,7 +441,19 @@ function App() {
         </div>
       )}
 
-      {/* 전송 센터 */}
+      {isLoginOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/98 p-4 backdrop-blur-3xl animate-in fade-in">
+          <div className="w-96 p-16 border border-red-950 bg-black text-center animate-in slide-in-from-bottom-8">
+            <h1 className="text-6xl font-black text-red-600 italic mb-16 uppercase animate-pulse">Arena</h1>
+            <div className="space-y-6">
+              <input type="text" placeholder="ID" className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 outline-none" onChange={(e) => setLoginData({...loginData, id: e.target.value})} />
+              <input type="password" placeholder="CODE" className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 outline-none" onChange={(e) => setLoginData({...loginData, pw: e.target.value})} />
+              <button onClick={handleLogin} className="w-full bg-red-800 py-5 font-black text-white hover:bg-red-700 uppercase tracking-widest text-sm">Connect</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isMailFormOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/98 p-4 backdrop-blur-md">
           <div className="bg-[#050505] border border-red-900/40 w-full max-w-xl p-1 shadow-2xl">
@@ -442,12 +486,9 @@ function App() {
                 <div>
                   <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest text-red-600">Attachment (File)</label>
                   <input type="file" className="w-full bg-black border border-zinc-900 p-4 text-[11px] text-zinc-500 italic file:bg-red-900 file:border-none file:text-white file:px-4 file:py-1 file:mr-4 file:font-black file:uppercase file:cursor-pointer cursor-pointer" onChange={(e) => setSelectedFile(e.target.files[0])} />
-                  {selectedFile && <p className="text-[10px] text-red-500 mt-2 font-black italic">SELECTED: {selectedFile.name}</p>}
                 </div>
                 <div className="flex gap-4">
-                  <button onClick={sendMail} disabled={isUploading} className="flex-1 bg-red-900 py-5 font-black text-white hover:bg-red-700 uppercase tracking-widest text-sm shadow-xl transition-all active:scale-95 disabled:opacity-50">
-                    {isUploading ? 'Uploading...' : 'Send'}
-                  </button>
+                  <button onClick={sendMail} disabled={isUploading} className="flex-1 bg-red-900 py-5 font-black text-white hover:bg-red-700 uppercase tracking-widest text-sm shadow-xl transition-all active:scale-95 disabled:opacity-50">{isUploading ? 'Uploading...' : 'Send'}</button>
                   <button onClick={() => { setIsMailFormOpen(false); setSelectedFile(null); }} className="flex-1 border border-zinc-900 py-5 font-black text-zinc-700 hover:text-white hover:border-zinc-500 uppercase tracking-widest text-sm transition-all">Abort</button>
                 </div>
               </div>
@@ -456,7 +497,7 @@ function App() {
         </div>
       )}
 
-      {/* 상품 상세 모달 */}
+      {/* 상품 상세 모달 (구매 버튼 연동) */}
       {selectedItem && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/98 p-4 backdrop-blur-2xl">
           <div className="bg-black border border-red-900 w-full max-w-2xl p-12 relative animate-in zoom-in-95">
@@ -467,21 +508,7 @@ function App() {
             </div>
             <div className="flex justify-between items-center border-t border-zinc-900 pt-10">
               <span className="text-4xl font-black text-white italic">{selectedItem.price?.toLocaleString()} <span className="text-sm">PTS</span></span>
-              <button className="bg-red-800 px-12 py-5 text-white font-black hover:bg-red-700 uppercase text-sm shadow-xl">Complete Transaction</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 로그인 모달 */}
-      {isLoginOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/98 p-4 backdrop-blur-3xl animate-in fade-in">
-          <div className="w-96 p-16 border border-red-950 bg-black text-center animate-in slide-in-from-bottom-8">
-            <h1 className="text-6xl font-black text-red-600 italic mb-16 uppercase animate-pulse">Arena</h1>
-            <div className="space-y-6">
-              <input type="text" placeholder="ID" className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 outline-none" onChange={(e) => setLoginData({...loginData, id: e.target.value})} />
-              <input type="password" placeholder="CODE" className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 outline-none" onChange={(e) => setLoginData({...loginData, pw: e.target.value})} />
-              <button onClick={handleLogin} className="w-full bg-red-800 py-5 font-black text-white hover:bg-red-700 uppercase tracking-widest text-sm">Connect</button>
+              <button onClick={handlePurchase} className="bg-red-800 px-12 py-5 text-white font-black hover:bg-red-700 uppercase text-sm shadow-xl transition-all active:scale-95">Complete Transaction</button>
             </div>
           </div>
         </div>
