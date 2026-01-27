@@ -1,13 +1,10 @@
 const { useState, useEffect, useRef } = React;
 const { createClient } = supabase;
-
 const SUPABASE_URL = 'https://vvvsuoadoawdivzyjmnh.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_csF0Yu6fNHfJy2VhNmL1ZA_mkxPGoTP';
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-/**
- * DuelRequestModal: 사유서 대상자에게만 노출되는 결투 신청 팝업
- */
+/* DuelRequestModal: 사유서 대상자에게만 노출되는 결투 신청 팝업*/
 const DuelRequestModal = ({ isOpen, mailData, onAccept, onReject }) => {
   if (!isOpen || !mailData) return null;
 
@@ -51,35 +48,30 @@ function App() {
   const [shopItems, setShopItems] = useState([]); 
   const [inventory, setInventory] = useState([]); // [추가] 유저 소지품 상태
   const [view, setView] = useState('home'); 
-
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isMailFormOpen, setIsMailFormOpen] = useState(false);
   const [isAdminMailOpen, setIsAdminMailOpen] = useState(false);
   const [isUserMgmtOpen, setIsUserMgmtOpen] = useState(false);
   const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
-  
   const [isDuelModalOpen, setIsDuelModalOpen] = useState(false);
   const [pendingDuel, setPendingDuel] = useState(null);
-
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedMail, setSelectedMail] = useState(null);
-
   const [loginData, setLoginData] = useState({ id: '', pw: '' });
   const [mailForm, setMailForm] = useState({ category: '건의사항', title: '', targetUser: '', content: '' });
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
-
   const [activeTab, setActiveTab] = useState('건의사항');
   const [searchTerm, setSearchTerm] = useState('');
-
   const channelRef = useRef(null);
   const LOGO_URL = '4.png';
-
+  
   // --- 상점 아이템 데이터 Fetch ---
   const fetchShopItems = async () => {
     const { data, error } = await supabaseClient
       .from('shop_items')
       .select('*')
+      .order('price', { ascending: true });
       .order('price', { ascending: false });
     if (!error) setShopItems(data || []);
   };
@@ -104,7 +96,7 @@ function App() {
     fetchUserList(); 
     fetchAllMails();
     fetchInventory(); // 로그인 시 소지품 로드
-    
+
     const channel = supabaseClient
       .channel('public:arena_v6')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mails' }, (payload) => { 
@@ -119,7 +111,6 @@ function App() {
     channelRef.current = channel;
     return () => { if (channelRef.current) supabaseClient.removeChannel(channelRef.current); };
   }, [user?.code]);
-
   const fetchUserList = async () => {
     if (!user) return;
     const { data } = await supabaseClient.from('users').select('*').order('name', { ascending: true });
@@ -127,7 +118,6 @@ function App() {
     const updatedUser = data?.find(u => u.code === user.code);
     if (updatedUser) setUser(updatedUser);
   };
-
   const fetchAllMails = async () => {
     if (!user) return;
     const { data } = await supabaseClient.from('mails').select('*').order('created_at', { ascending: false });
@@ -137,23 +127,18 @@ function App() {
   // --- [추가] 구매 로직: 포인트 차감 및 소지품 추가 ---
   const handlePurchase = async () => {
     if (!user || !selectedItem) return;
-
     if (user.points < selectedItem.price) {
       alert('크레딧(PTS)이 부족합니다.');
       return;
     }
-
     if (!confirm(`[${selectedItem.name}] 상품을 구매하시겠습니까?`)) return;
-
     try {
       // 1. 포인트 차감 업데이트
       const { error: userError } = await supabaseClient
         .from('users')
         .update({ points: user.points - selectedItem.price })
         .eq('code', user.code);
-      
       if (userError) throw userError;
-
       // 2. 소지품(인벤토리)에 추가
       const { error: invError } = await supabaseClient
         .from('user_inventory')
@@ -161,9 +146,7 @@ function App() {
           user_code: user.code, 
           item_name: selectedItem.name 
         }]);
-
       if (invError) throw invError;
-
       alert('구매가 완료되었습니다.');
       setSelectedItem(null);
       fetchUserList(); // 포인트 갱신을 위해 유저 정보 다시 불러오기
@@ -195,77 +178,21 @@ function App() {
     return data.publicUrl;
   };
 
-const sendMail = async () => {
-    // 1. [선물하기] 카테고리일 때 아이템 보유 여부 체크
-    const isGift = mailForm.category === '선물하기';
-    let targetInvItem = null;
-
-    if (isGift) {
-      if (!mailForm.targetUser) return alert('선물을 보낼 대상을 선택해주세요.');
-      
-      // 인벤토리에서 아이템 확인 (이름이 정확히 일치해야 함)
-      targetInvItem = inventory.find(i => 
-        i.item_name === '[세트] 목줄+방울' || i.item_name === '[단품] 목줄'
-      );
-
-      if (!targetInvItem) {
-        return alert('사용할 상품이 없습니다. 상점에서 구매해주시길 바랍니다.');
-      }
-    }
-
+  const sendMail = async () => {
     setIsUploading(true);
     try {
-      // 2. 파일 업로드
       let fileUrl = '';
       if (selectedFile) fileUrl = await uploadFile(selectedFile);
-
-      // 3. 수신자 코드 추출 (사유서 또는 선물하기일 때)
-      let receiverCode = (mailForm.category === '사유서' || mailForm.category === '선물하기') 
-        ? (mailForm.targetUser.match(/[\[\(](.*?)[\]\)]/) || [])[1] 
-        : null;
-
-      // 4. 제목 및 내용 설정
-      let finalTitle = mailForm.title; // 기본값
-      if (mailForm.category === '사유서') finalTitle = `[사유서] 대상: ${mailForm.targetUser}`;
-      if (mailForm.category === '선물하기') finalTitle = `[선물] ${user.name}님이 아이템을 선물했습니다.`;
-      if (mailForm.category === '건의사항') finalTitle = `[건의사항] ${mailForm.title}`;
-
+      let receiverCode = mailForm.category === '사유서' ? (mailForm.targetUser.match(/[\[\(](.*?)[\]\)]/) || [])[1] : null;
+      let finalTitle = mailForm.category === '사유서' ? `[사유서] 대상: ${mailForm.targetUser}` : `[건의사항] ${mailForm.title}`;
       const finalContent = fileUrl ? `${mailForm.content}\n\n[첨부파일]: ${fileUrl}` : mailForm.content;
-
-      // 5. DB에 메일 인서트
       const { error } = await supabaseClient.from('mails').insert([{ 
-        sender_name: user.name, 
-        sender_code: user.code, 
-        receiver_code: receiverCode || 'ADMIN', // 수신자 없으면 관리자에게
-        title: finalTitle, 
-        content: finalContent, 
-        status: (mailForm.category === '사유서' || mailForm.category === '선물하기') ? '처리대기' : '기타', 
-        is_read: false 
+        sender_name: user.name, sender_code: user.code, receiver_code: receiverCode, 
+        title: finalTitle, content: finalContent, 
+        status: mailForm.category === '사유서' ? '처리대기' : '기타', is_read: false 
       }]);
-
-      if (!error) {
-        // 6. [중요] 선물하기 성공 시 아이템 실제 소모(삭제)
-        if (isGift && targetInvItem) {
-          await supabaseClient
-            .from('user_inventory')
-            .delete()
-            .eq('id', targetInvItem.id);
-          
-          // 인벤토리 상태 즉시 갱신 (유저 화면 반영)
-          if (typeof fetchInventory === 'function') fetchInventory(user.code);
-        }
-
-        alert(isGift ? '아이템을 소모하여 선물을 전송했습니다.' : '전송 완료');
-        setIsMailFormOpen(false); 
-        setSelectedFile(null); 
-        if (typeof fetchAllMails === 'function') fetchAllMails(); 
-      }
-    } catch (err) { 
-      alert('전송 중 오류 발생'); 
-      console.error(err); 
-    } finally { 
-      setIsUploading(false); 
-    }
+      if (!error) { alert('전송 완료'); setIsMailFormOpen(false); setSelectedFile(null); fetchAllMails(); }
+    } catch (err) { alert('전송 중 오류 발생'); console.error(err); } finally { setIsUploading(false); }
   };
 
   const updatePoint = async (code, point) => {
@@ -326,7 +253,7 @@ const sendMail = async () => {
                 <span className="text-4xl font-black text-red-600 italic tracking-tighter">{user ? user.points.toLocaleString() : '---'} <span className="text-sm not-italic ml-1">PTS</span></span>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
               {shopItems.map((item) => (
                 <div key={item.id} onClick={() => setSelectedItem(item)} className="group cursor-pointer bg-[#050505] border border-zinc-900 p-1 hover:border-red-600 transition-all duration-500 shadow-2xl">
@@ -509,67 +436,42 @@ const sendMail = async () => {
           </div>
         </div>
       )}
-{isMailFormOpen && (
+
+      {isMailFormOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/98 p-4 backdrop-blur-md">
           <div className="bg-[#050505] border border-red-900/40 w-full max-w-xl p-1 shadow-2xl">
             <div className="border border-red-900/20 p-12">
               <h3 className="text-red-700 font-black italic text-xl mb-12 uppercase text-center tracking-[0.4em]">Transmission Center</h3>
               <div className="space-y-8">
-                {/* 카테고리 선택 */}
                 <div>
                    <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Category</label>
-                   <select 
-                     className="w-full bg-black border border-zinc-900 p-5 text-zinc-400 font-black uppercase text-xs focus:border-red-900 outline-none" 
-                     value={mailForm.category}
-                     onChange={(e) => setMailForm({...mailForm, category: e.target.value})}
-                   >
+                   <select className="w-full bg-black border border-zinc-900 p-5 text-zinc-400 font-black uppercase text-xs focus:border-red-900 outline-none" onChange={(e) => setMailForm({...mailForm, category: e.target.value})}>
                      <option value="건의사항">건의사항 [Opinion]</option>
                      <option value="사유서">사유서 [Duel Statement]</option>
-                     <option value="선물하기">선물하기 [Gift Item]</option> {/* 추가됨 */}
                    </select>
                 </div>
-
-                {/* 입력창 분기 로직 */}
                 {mailForm.category === '건의사항' ? (
                   <div>
                     <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Subject</label>
                     <input type="text" placeholder="제목을 입력하십시오..." className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 italic outline-none" onChange={(e) => setMailForm({...mailForm, title: e.target.value})} />
                   </div>
                 ) : (
-                  /* 사유서 또는 선물하기일 때 대상 선택창 표시 */
                   <div>
-                    <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">
-                      {mailForm.category === '선물하기' ? 'Receiver' : 'Target Opponent'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="상대방 이름(코드)을 선택하십시오..." 
-                      className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 italic outline-none" 
-                      list="userList" 
-                      onChange={(e) => setMailForm({...mailForm, targetUser: e.target.value})} 
-                    />
+                    <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Target Opponent</label>
+                    <input type="text" placeholder="상대방 이름(코드)을 선택하십시오..." className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 italic outline-none" list="userList" onChange={(e) => setMailForm({...mailForm, targetUser: e.target.value})} />
                   </div>
                 )}
-                
                 <datalist id="userList">{allUsers.map(u => <option key={u.code} value={`${u.name}(${u.code})`} />)}</datalist>
-
-                {/* 상세 내용 */}
                 <div>
                   <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Detailed Content</label>
                   <textarea rows="6" className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 italic leading-relaxed outline-none" placeholder="내용을 입력하십시오..." onChange={(e) => setMailForm({...mailForm, content: e.target.value})}></textarea>
                 </div>
-
-                {/* 파일 업로드 */}
                 <div>
                   <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest text-red-600">Attachment (File)</label>
                   <input type="file" className="w-full bg-black border border-zinc-900 p-4 text-[11px] text-zinc-500 italic file:bg-red-900 file:border-none file:text-white file:px-4 file:py-1 file:mr-4 file:font-black file:uppercase file:cursor-pointer cursor-pointer" onChange={(e) => setSelectedFile(e.target.files[0])} />
                 </div>
-
-                {/* 버튼 영역 */}
                 <div className="flex gap-4">
-                  <button onClick={handleSendMail} disabled={isUploading} className="flex-1 bg-red-900 py-5 font-black text-white hover:bg-red-700 uppercase tracking-widest text-sm shadow-xl transition-all active:scale-95 disabled:opacity-50">
-                    {isUploading ? 'Uploading...' : 'Send'}
-                  </button>
+                  <button onClick={sendMail} disabled={isUploading} className="flex-1 bg-red-900 py-5 font-black text-white hover:bg-red-700 uppercase tracking-widest text-sm shadow-xl transition-all active:scale-95 disabled:opacity-50">{isUploading ? 'Uploading...' : 'Send'}</button>
                   <button onClick={() => { setIsMailFormOpen(false); setSelectedFile(null); }} className="flex-1 border border-zinc-900 py-5 font-black text-zinc-700 hover:text-white hover:border-zinc-500 uppercase tracking-widest text-sm transition-all">Abort</button>
                 </div>
               </div>
@@ -577,6 +479,7 @@ const sendMail = async () => {
           </div>
         </div>
       )}
+
       {/* 상품 상세 모달 (구매 버튼 연동) */}
       {selectedItem && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/98 p-4 backdrop-blur-2xl">
@@ -603,8 +506,6 @@ const sendMail = async () => {
     </div>
   );
 }
-
-
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
