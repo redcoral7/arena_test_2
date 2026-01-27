@@ -80,7 +80,7 @@ function App() {
     const { data, error } = await supabaseClient
       .from('shop_items')
       .select('*')
-      .order('price', { ascending: true });
+      .order('price', { ascending: false });
     if (!error) setShopItems(data || []);
   };
 
