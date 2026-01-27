@@ -71,7 +71,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const channelRef = useRef(null);
-  const LOGO_URL = 'https://cdn.discordapp.com/attachments/1458496465876811878/1463340384229921042/4.png?ex=6971796f&is=697027ef&hm=574d680117717dd4b6effb6e9dab7620274ca2d63cd5b26b3f2610efbb76f26f&';
+  const LOGO_URL = '4.png';
 
   const shopItems = [
     { id: 1, name: '총기', price: '50,000', desc: '결투용 정식 허가 총기입니다.', detail: '최고급 강철로 제작되었으며, 아레나 공식 인증 마크가 각인되어 있습니다. 실탄 12발이 포함됩니다.' },
