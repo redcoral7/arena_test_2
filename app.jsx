@@ -4,7 +4,7 @@ const SUPABASE_URL = 'https://vvvsuoadoawdivzyjmnh.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_csF0Yu6fNHfJy2VhNmL1ZA_mkxPGoTP';
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-/* DuelRequestModal: 사유서 대상자에게만 노출되는 결투 신청 팝업*/
+/* DuelRequestModal: 사유서 대상자에게만 노출되는 결투 신청 팝업 */
 const DuelRequestModal = ({ isOpen, mailData, onAccept, onReject }) => {
   if (!isOpen || !mailData) return null;
 
@@ -46,7 +46,7 @@ function App() {
   const [allUsers, setAllUsers] = useState([]);
   const [mails, setMails] = useState([]);
   const [shopItems, setShopItems] = useState([]); 
-  const [inventory, setInventory] = useState([]); // [추가] 유저 소지품 상태
+  const [inventory, setInventory] = useState([]); 
   const [view, setView] = useState('home'); 
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isMailFormOpen, setIsMailFormOpen] = useState(false);
@@ -66,17 +66,14 @@ function App() {
   const channelRef = useRef(null);
   const LOGO_URL = '4.png';
   
-  // --- 상점 아이템 데이터 Fetch ---
   const fetchShopItems = async () => {
     const { data, error } = await supabaseClient
       .from('shop_items')
       .select('*')
-      .order('price', { ascending: true });
       .order('price', { ascending: false });
     if (!error) setShopItems(data || []);
   };
 
-  // --- [추가] 소지품 데이터 Fetch ---
   const fetchInventory = async () => {
     if (!user) return;
     const { data } = await supabaseClient
@@ -95,15 +92,18 @@ function App() {
     }
     fetchUserList(); 
     fetchAllMails();
-    fetchInventory(); // 로그인 시 소지품 로드
+    fetchInventory(); 
 
     const channel = supabaseClient
       .channel('public:arena_v6')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mails' }, (payload) => { 
         if (user) fetchAllMails(); 
         if (payload.new && payload.new.receiver_code === user.code && payload.new.status === '처리대기') {
-          setPendingDuel(payload.new);
-          setIsDuelModalOpen(true);
+          // 사유서일 경우에만 결투 팝업 노출 (선물하기는 제외하기 위해 제목 체크)
+          if (payload.new.title.includes('[사유서]')) {
+            setPendingDuel(payload.new);
+            setIsDuelModalOpen(true);
+          }
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users' }, () => { if (user) fetchUserList(); })
@@ -111,6 +111,7 @@ function App() {
     channelRef.current = channel;
     return () => { if (channelRef.current) supabaseClient.removeChannel(channelRef.current); };
   }, [user?.code]);
+
   const fetchUserList = async () => {
     if (!user) return;
     const { data } = await supabaseClient.from('users').select('*').order('name', { ascending: true });
@@ -118,13 +119,13 @@ function App() {
     const updatedUser = data?.find(u => u.code === user.code);
     if (updatedUser) setUser(updatedUser);
   };
+
   const fetchAllMails = async () => {
     if (!user) return;
     const { data } = await supabaseClient.from('mails').select('*').order('created_at', { ascending: false });
     setMails(data || []);
   };
 
-  // --- [추가] 구매 로직: 포인트 차감 및 소지품 추가 ---
   const handlePurchase = async () => {
     if (!user || !selectedItem) return;
     if (user.points < selectedItem.price) {
@@ -133,13 +134,11 @@ function App() {
     }
     if (!confirm(`[${selectedItem.name}] 상품을 구매하시겠습니까?`)) return;
     try {
-      // 1. 포인트 차감 업데이트
       const { error: userError } = await supabaseClient
         .from('users')
         .update({ points: user.points - selectedItem.price })
         .eq('code', user.code);
       if (userError) throw userError;
-      // 2. 소지품(인벤토리)에 추가
       const { error: invError } = await supabaseClient
         .from('user_inventory')
         .insert([{ 
@@ -149,8 +148,8 @@ function App() {
       if (invError) throw invError;
       alert('구매가 완료되었습니다.');
       setSelectedItem(null);
-      fetchUserList(); // 포인트 갱신을 위해 유저 정보 다시 불러오기
-      fetchInventory(); // 소지품 목록 갱신
+      fetchUserList();
+      fetchInventory();
     } catch (err) {
       console.error(err);
       alert('거래 중 오류가 발생했습니다.');
@@ -179,19 +178,53 @@ function App() {
   };
 
   const sendMail = async () => {
+    const isGift = mailForm.category === '선물하기';
+    let targetInvItem = null;
+
+    // 선물하기 시 아이템 체크
+    if (isGift) {
+      if (!mailForm.targetUser) return alert('선물할 대상을 선택해주세요.');
+      targetInvItem = inventory.find(i => 
+        i.item_name === '[세트] 목줄+방울' || i.item_name === '[단품] 목줄'
+      );
+      if (!targetInvItem) {
+        return alert('사용할 상품이 없습니다. 상점에서 구매해주시길 바랍니다.');
+      }
+    }
+
     setIsUploading(true);
     try {
       let fileUrl = '';
       if (selectedFile) fileUrl = await uploadFile(selectedFile);
-      let receiverCode = mailForm.category === '사유서' ? (mailForm.targetUser.match(/[\[\(](.*?)[\]\)]/) || [])[1] : null;
-      let finalTitle = mailForm.category === '사유서' ? `[사유서] 대상: ${mailForm.targetUser}` : `[건의사항] ${mailForm.title}`;
+      
+      let receiverCode = (mailForm.category === '사유서' || mailForm.category === '선물하기') 
+        ? (mailForm.targetUser.match(/[\[\(](.*?)[\]\)]/) || [])[1] 
+        : null;
+
+      let finalTitle = `[${mailForm.category}] ${mailForm.title}`;
+      if (mailForm.category === '사유서') finalTitle = `[사유서] 대상: ${mailForm.targetUser}`;
+      if (mailForm.category === '선물하기') finalTitle = `[선물하기] 대상: ${mailForm.targetUser}`;
+
       const finalContent = fileUrl ? `${mailForm.content}\n\n[첨부파일]: ${fileUrl}` : mailForm.content;
+      
       const { error } = await supabaseClient.from('mails').insert([{ 
-        sender_name: user.name, sender_code: user.code, receiver_code: receiverCode, 
+        sender_name: user.name, sender_code: user.code, receiver_code: receiverCode || 'ADMIN', 
         title: finalTitle, content: finalContent, 
-        status: mailForm.category === '사유서' ? '처리대기' : '기타', is_read: false 
+        status: '처리대기', is_read: false 
       }]);
-      if (!error) { alert('전송 완료'); setIsMailFormOpen(false); setSelectedFile(null); fetchAllMails(); }
+
+      if (!error) {
+        // 선물하기 성공 시 아이템 소모
+        if (isGift && targetInvItem) {
+          await supabaseClient.from('user_inventory').delete().eq('id', targetInvItem.id);
+          fetchInventory();
+        }
+        alert('전송 완료'); 
+        setIsMailFormOpen(false); 
+        setSelectedFile(null); 
+        setMailForm({ category: '건의사항', title: '', targetUser: '', content: '' });
+        fetchAllMails(); 
+      }
     } catch (err) { alert('전송 중 오류 발생'); console.error(err); } finally { setIsUploading(false); }
   };
 
@@ -212,7 +245,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-black text-zinc-400 font-serif selection:bg-red-900 selection:text-white overflow-x-hidden">
-      {/* 네비게이션 */}
       <nav className="px-8 py-4 flex justify-between items-center border-b border-red-950/30 bg-black/90 backdrop-blur-xl sticky top-0 z-50">
         <div className="flex items-center gap-12">
           <img src={LOGO_URL} className="h-12 cursor-pointer hover:scale-105 transition-transform duration-300" onClick={() => setView('home')} />
@@ -233,7 +265,6 @@ function App() {
         </div>
       </nav>
 
-      {/* 메인 뷰 */}
       <div>
         {view === 'home' ? (
           <main className="flex flex-col items-center justify-center pt-60 text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
@@ -258,12 +289,12 @@ function App() {
               {shopItems.map((item) => (
                 <div key={item.id} onClick={() => setSelectedItem(item)} className="group cursor-pointer bg-[#050505] border border-zinc-900 p-1 hover:border-red-600 transition-all duration-500 shadow-2xl">
                   <div className="aspect-[4/3] bg-zinc-950 flex flex-col items-center justify-center relative overflow-hidden text-center">
-                     <div className="absolute inset-0 bg-gradient-to-t from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                     {item.image_url ? (
+                      <div className="absolute inset-0 bg-gradient-to-t from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                      {item.image_url ? (
                         <img src={item.image_url} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" />
-                     ) : (
+                      ) : (
                         <span className="text-zinc-900 font-black text-5xl group-hover:text-zinc-800 transition-colors uppercase italic">{item.name}</span>
-                     )}
+                      )}
                   </div>
                   <div className="p-6 bg-black border-t border-zinc-900 group-hover:border-red-900 transition-colors">
                       <div className="flex justify-between items-start mb-2">
@@ -284,7 +315,6 @@ function App() {
         onAccept={(id) => handleDecision(id, '서명완료')} onReject={(id) => handleDecision(id, '거절')}
       />
 
-      {/* 유저 프로필 모달 (소지품란 추가) */}
       {isUserProfileOpen && user && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/98 p-4 backdrop-blur-3xl">
           <div className="bg-[#050505] border-2 border-red-700 w-full max-w-2xl p-1 shadow-2xl animate-in zoom-in-95">
@@ -301,7 +331,6 @@ function App() {
                   <span className="text-4xl font-black text-red-600 italic tracking-tighter">{user.points.toLocaleString()} <span className="text-xs not-italic text-zinc-700 ml-2">PTS</span></span>
               </div>
 
-              {/* [추가] 소지품란 (Possessions) */}
               <div className="mb-10">
                 <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-4 italic">Possessions</h3>
                 <div className="grid grid-cols-2 gap-2">
@@ -325,7 +354,9 @@ function App() {
                     mails.filter(m => m.sender_code === user.code || m.receiver_code === user.code).map(m => (
                       <div key={m.id} className="bg-black border border-zinc-900/50 p-4 flex justify-between items-center">
                         <div className="flex flex-col">
-                          <span className="text-[9px] text-zinc-700 font-black uppercase mb-1">{m.title.includes('[사유서]') ? '사유서' : '건의사항'}</span>
+                          <span className="text-[9px] text-zinc-700 font-black uppercase mb-1">
+                            {m.title.includes('[사유서]') ? '사유서' : m.title.includes('[선물하기]') ? '선물하기' : '건의사항'}
+                          </span>
                           <span className="text-zinc-400 text-sm italic">{m.title}</span>
                         </div>
                         <span className={`text-[10px] font-black px-3 py-1 border 
@@ -345,7 +376,6 @@ function App() {
         </div>
       )}
 
-      {/* 관리자 메일함, 유저 관리, 전송 센터 모달 (기존 동일) */}
       {isAdminMailOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/98 p-4 backdrop-blur-md">
           <div className="bg-black border-2 border-red-700 w-full max-w-6xl h-[850px] flex flex-col shadow-2xl">
@@ -353,6 +383,7 @@ function App() {
               <div className="flex gap-6">
                 <button onClick={() => { setActiveTab('건의사항'); setSelectedMail(null); }} className={`px-12 py-4 text-[11px] font-black border uppercase tracking-widest ${activeTab === '건의사항' ? 'border-red-600 text-red-600 bg-red-900/10' : 'border-zinc-800 text-zinc-700'}`}>건의사항</button>
                 <button onClick={() => { setActiveTab('사유서'); setSelectedMail(null); }} className={`px-12 py-4 text-[11px] font-black border uppercase tracking-widest ${activeTab === '사유서' ? 'border-red-600 text-red-600 bg-red-900/10' : 'border-zinc-800 text-zinc-700'}`}>사유서</button>
+                <button onClick={() => { setActiveTab('선물하기'); setSelectedMail(null); }} className={`px-12 py-4 text-[11px] font-black border uppercase tracking-widest ${activeTab === '선물하기' ? 'border-red-600 text-red-600 bg-red-900/10' : 'border-zinc-800 text-zinc-700'}`}>선물하기</button>
               </div>
               <button onClick={() => { setIsAdminMailOpen(false); setSelectedMail(null); }} className="text-zinc-600 hover:text-white text-4xl">✕</button>
             </div>
@@ -445,9 +476,12 @@ function App() {
               <div className="space-y-8">
                 <div>
                    <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Category</label>
-                   <select className="w-full bg-black border border-zinc-900 p-5 text-zinc-400 font-black uppercase text-xs focus:border-red-900 outline-none" onChange={(e) => setMailForm({...mailForm, category: e.target.value})}>
+                   <select className="w-full bg-black border border-zinc-900 p-5 text-zinc-400 font-black uppercase text-xs focus:border-red-900 outline-none" 
+                     value={mailForm.category}
+                     onChange={(e) => setMailForm({...mailForm, category: e.target.value})}>
                      <option value="건의사항">건의사항 [Opinion]</option>
                      <option value="사유서">사유서 [Duel Statement]</option>
+                     <option value="선물하기">선물하기 [Gift Item]</option>
                    </select>
                 </div>
                 {mailForm.category === '건의사항' ? (
@@ -457,7 +491,7 @@ function App() {
                   </div>
                 ) : (
                   <div>
-                    <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Target Opponent</label>
+                    <label className="text-[9px] text-zinc-700 font-black uppercase mb-3 block tracking-widest">Target Opponent / Receiver</label>
                     <input type="text" placeholder="상대방 이름(코드)을 선택하십시오..." className="w-full bg-black border border-zinc-900 p-5 text-white focus:border-red-900 italic outline-none" list="userList" onChange={(e) => setMailForm({...mailForm, targetUser: e.target.value})} />
                   </div>
                 )}
@@ -480,7 +514,6 @@ function App() {
         </div>
       )}
 
-      {/* 상품 상세 모달 (구매 버튼 연동) */}
       {selectedItem && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/98 p-4 backdrop-blur-2xl">
           <div className="bg-black border border-red-900 w-full max-w-2xl p-12 relative animate-in zoom-in-95">
@@ -497,7 +530,6 @@ function App() {
         </div>
       )}
 
-      {/* 플로팅 버튼 */}
       {user && !user.is_admin && (
         <button onClick={() => setIsMailFormOpen(true)} className="fixed bottom-12 right-12 w-16 h-16 bg-red-950 rounded-full flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(153,27,27,0.4)] border border-red-700 hover:scale-110 active:scale-90 transition-all z-40 group">
           <span className="group-hover:animate-bounce">💬</span>
