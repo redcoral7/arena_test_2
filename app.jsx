@@ -263,7 +263,7 @@ function App() {
           <div className="flex gap-10 items-center text-[11px] font-black tracking-[0.4em] uppercase">
              <button onClick={() => setView('home')} className={`transition-all duration-300 hover:text-white ${view === 'home' ? 'text-white border-b border-red-700' : 'text-zinc-600'}`}>[ HOME ]</button>
              <button onClick={() => setView('shop')} className={`transition-all duration-300 hover:text-red-500 ${view === 'shop' ? 'text-red-600 border-b border-red-700' : 'text-zinc-600'}`}>[ SHOP ]</button>
-             <button onClick={() => setView('shop')} className={`transition-all duration-300 hover:text-red-500 ${view === 'shop' ? 'text-red-600 border-b border-red-700' : 'text-zinc-600'}`}>[ SHOP ]</button> 
+             <button onClick={() => setView('stock')} className={`transition-all duration-300 hover:text-red-500 ${view === 'shop' ? 'text-red-600 border-b border-red-700' : 'text-zinc-600'}`}>[ SHOP ]</button> 
             {user?.is_admin && <button onClick={() => setIsUserMgmtOpen(true)} className="text-red-600 hover:text-red-400 animate-pulse">[ 유저 관리 ]</button>}
           </div>
         </div>
@@ -322,28 +322,11 @@ function App() {
           </main>
         )}
         
+        {/* 3. 주식 시장 화면 */}
         {view === 'stock' && (
-          <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-8 duration-700">
-            <div className="flex justify-between items-end mb-16 border-l-4 border-blue-900 pl-8">
-              <h2 className="text-6xl font-black text-white italic uppercase tracking-tighter">Stock Market</h2>
-              <p className="text-blue-900 font-black tracking-[0.5em] text-[10px] uppercase">Trading Floor</p>
-            </div>
-            <div className="grid grid-cols-1 gap-4">
-              {stocks.map(stock => (
-                <div key={stock.id} className="bg-[#050505] border border-zinc-900 p-10 flex justify-between items-center hover:border-blue-900 transition-all">
-                  <div className="flex items-center gap-12">
-                    <span className="text-blue-600 font-black italic text-3xl uppercase tracking-widest">{stock.name}</span>
-                    <span className="text-5xl font-black text-white italic tracking-tighter">{stock.current_price?.toLocaleString()}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className={`text-2xl font-black italic ${stock.change_rate >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                      {stock.change_rate >= 0 ? '▲' : '▼'} {Math.abs(stock.change_rate)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </main>
+          <div className="animate-in slide-in-from-bottom-12 duration-700 slide-in-from-bottom-full">
+            <window.StockMarket user={user} fetchUserList={fetchUserList} />
+          </div>
         )}
       </div>
       {/* 메인 콘텐츠 영역 종료 */}
