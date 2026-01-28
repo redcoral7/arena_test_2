@@ -288,32 +288,49 @@ function App() {
           ) : <button onClick={() => setIsLoginOpen(true)} className="text-red-700 font-black text-[11px] border border-red-900 px-8 py-2 hover:bg-red-900 hover:text-white transition-all duration-300 italic tracking-[0.2em]">LOGIN</button>}
         </div>
       </nav>
+
       <div>
-        {/* 1. 홈 화면 */}
-        {view === 'home' && (
+        {view === 'home' ? (
           <main className="flex flex-col items-center justify-center pt-60 text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
             <h1 className="text-[90px] font-black text-white italic tracking-tighter leading-none mb-6 uppercase">"Arena Never Sleeps"</h1>
             <div className="w-24 h-[1px] bg-red-900 mb-8"></div>
             <p className="text-zinc-700 italic text-xl tracking-[0.3em] uppercase">The victory is the only record.</p>
           </main>
-        )}
-      
-        {/* 2. 상점 화면 */}
-        {view === 'shop' && (
+        ) : (
           <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-8 duration-700">
-            {/* 기존 상점 헤더 및 아이템 그리드 코드 (이미지의 301~322라인 내용) */}
             <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
-               {/* ... (중략) ... */}
+              <div>
+                <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2">Black Market</h2>
+                <p className="text-red-900 font-black tracking-[0.5em] text-[10px] uppercase">Restricted Area / Authorized Personnel Only</p>
+              </div>
+              <div className="text-right">
+                <span className="text-zinc-600 text-[10px] uppercase font-black tracking-widest block mb-2">Available Credits</span>
+                <span className="text-4xl font-black text-red-600 italic tracking-tighter">{user ? user.points.toLocaleString() : '---'} <span className="text-sm not-italic ml-1">PTS</span></span>
+              </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-               {/* ... (shopItems.map 부분) ... */}
+              {shopItems.map((item) => (
+                <div key={item.id} onClick={() => setSelectedItem(item)} className="group cursor-pointer bg-[#050505] border border-zinc-900 p-1 hover:border-red-600 transition-all duration-500 shadow-2xl">
+                  <div className="aspect-[4/3] bg-zinc-950 flex flex-col items-center justify-center relative overflow-hidden text-center">
+                      <div className="absolute inset-0 bg-gradient-to-t from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                      {item.image_url ? (
+                        <img src={item.image_url} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" />
+                      ) : (
+                        <span className="text-zinc-900 font-black text-5xl group-hover:text-zinc-800 transition-colors uppercase italic">{item.name}</span>
+                      )}
+                  </div>
+                  <div className="p-6 bg-black border-t border-zinc-900 group-hover:border-red-900 transition-colors">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-xl font-black text-zinc-400 italic group-hover:text-white transition-colors uppercase tracking-tighter">{item.name}</h3>
+                        <span className="text-red-600 font-black italic tracking-tighter">{item.price?.toLocaleString()} <span className="text-[10px]">PTS</span></span>
+                      </div>
+                      <p className="text-zinc-600 text-[11px] font-medium leading-relaxed italic border-t border-zinc-900/50 pt-2 group-hover:text-zinc-400 transition-colors">{item.desc_text}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </main>
-        )}
-      
-        {/* 3. 주식 시장 화면 (새로 추가) */}
-        {view === 'stock' && (
-          <window.StockMarket user={user} fetchUserList={fetchUserList} />
         )}
       </div>
 
