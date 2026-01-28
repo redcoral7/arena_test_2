@@ -321,19 +321,37 @@ function App() {
             </div>
           </main>
         )}
-      </div>
-
-        {/* 3. 주식 시장 화면 */}
+        
         {view === 'stock' && (
-          <div className="animate-in slide-in-from-bottom-12 duration-700 slide-in-from-bottom-full">
-            <window.StockMarket user={user} fetchUserList={fetchUserList} />
-          </div>
+          <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-8 duration-700">
+            <div className="flex justify-between items-end mb-16 border-l-4 border-blue-900 pl-8">
+              <h2 className="text-6xl font-black text-white italic uppercase tracking-tighter">Stock Market</h2>
+              <p className="text-blue-900 font-black tracking-[0.5em] text-[10px] uppercase">Trading Floor</p>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              {stocks.map(stock => (
+                <div key={stock.id} className="bg-[#050505] border border-zinc-900 p-10 flex justify-between items-center hover:border-blue-900 transition-all">
+                  <div className="flex items-center gap-12">
+                    <span className="text-blue-600 font-black italic text-3xl uppercase tracking-widest">{stock.name}</span>
+                    <span className="text-5xl font-black text-white italic tracking-tighter">{stock.current_price?.toLocaleString()}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className={`text-2xl font-black italic ${stock.change_rate >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                      {stock.change_rate >= 0 ? '▲' : '▼'} {Math.abs(stock.change_rate)}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </main>
         )}
       </div>
+      {/* 메인 콘텐츠 영역 종료 */}
 
+      {/* --- 모달들: 반드시 하나의 부모 <div> 안에 포함되어야 함 --- */}
       <DuelRequestModal 
-        isOpen={isDuelModalOpen} mailData={pendingDuel}
-        onAccept={(id) => handleDecision(id, '서명완료')} onReject={(id) => handleDecision(id, '거절')}
+        isOpen={isDuelModalOpen} mailData={pendingDuel} 
+        onAccept={(id) => handleDecision(id, '서명완료')} onReject={(id) => handleDecision(id, '거절')} 
       />
 
       {/* --- 프로필 아카이브 모달 --- */}
