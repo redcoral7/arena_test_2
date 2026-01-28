@@ -13,7 +13,7 @@ const StockMarket = ({ user, fetchUserList }) => {
   const checkMarketStatus = () => {
     const now = new Date();
     const hour = now.getHours();
-    return hour >= 19 || hour < 2;
+    return hour >= 19 || hour < 5;
   };
 
   // 데이터 가져오기 (GitHub Actions가 업데이트한 최신 DB 값을 읽어옴)
