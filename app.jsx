@@ -274,8 +274,8 @@ function App() {
           <div className="flex gap-10 items-center text-[11px] font-black tracking-[0.4em] uppercase">
              <button onClick={() => setView('home')} className={`transition-all duration-300 hover:text-white ${view === 'home' ? 'text-white border-b border-red-700' : 'text-zinc-600'}`}>[ HOME ]</button>
              <button onClick={() => setView('shop')} className={`transition-all duration-300 hover:text-red-500 ${view === 'shop' ? 'text-red-600 border-b border-red-700' : 'text-zinc-600'}`}>[ SHOP ]</button>
-             <button onClick={() => setView('stock')} className={`transition-all duration-300 hover:text-red-500 ${view === 'stock' ? 'text-red-600 border-b border-red-700' : 'text-zinc-600'}`}
-             {user?.is_admin && <button onClick={() => setIsUserMgmtOpen(true)} className="text-red-600 hover:text-red-400 animate-pulse">[ 유저 관리 ]</button>}
+             <button onClick={() => setView('stock')} className={`transition-all duration-300 hover:text-red-500 ${view === 'stock' ? 'text-red-600 border-b border-red-700' : 'text-zinc-600'}`}>[ STOCK ]</button> 
+            {user?.is_admin && <button onClick={() => setIsUserMgmtOpen(true)} className="text-red-600 hover:text-red-400 animate-pulse">[ 유저 관리 ]</button>}
           </div>
         </div>
         <div className="flex gap-6 items-center">
@@ -288,15 +288,17 @@ function App() {
           ) : <button onClick={() => setIsLoginOpen(true)} className="text-red-700 font-black text-[11px] border border-red-900 px-8 py-2 hover:bg-red-900 hover:text-white transition-all duration-300 italic tracking-[0.2em]">LOGIN</button>}
         </div>
       </nav>
-
+{/* --- [수정] 메인 컨텐츠 영역: 다중 조건부 렌더링 --- */}
       <div>
-        {view === 'home' ? (
+        {view === 'home' && (
           <main className="flex flex-col items-center justify-center pt-60 text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
             <h1 className="text-[90px] font-black text-white italic tracking-tighter leading-none mb-6 uppercase">"Arena Never Sleeps"</h1>
             <div className="w-24 h-[1px] bg-red-900 mb-8"></div>
             <p className="text-zinc-700 italic text-xl tracking-[0.3em] uppercase">The victory is the only record.</p>
           </main>
-        ) : (
+        )}
+
+        {view === 'shop' && (
           <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-8 duration-700">
             <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
               <div>
@@ -331,6 +333,11 @@ function App() {
               ))}
             </div>
           </main>
+        )}
+
+        {view === 'stock' && (
+          /* window 객체를 통해 외부 파일(StockMarket.jsx)에서 등록한 컴포넌트 호출 */
+          <window.StockMarket user={user} fetchUserList={fetchUserList} />
         )}
       </div>
 
