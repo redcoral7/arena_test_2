@@ -279,7 +279,7 @@ function App() {
       </nav>
 <div className="relative">
         {view === 'home' && (
-          <main className="flex flex-col items-center justify-center pt-60 text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
+          <main key="home-view" className="flex flex-col items-center justify-center pt-60 text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
             <h1 className="text-[90px] font-black text-white italic tracking-tighter leading-none mb-6 uppercase">"Arena Never Sleeps"</h1>
             <div className="w-24 h-[1px] bg-red-900 mb-8"></div>
             <p className="text-zinc-700 italic text-xl tracking-[0.3em] uppercase">The victory is the only record.</p>
