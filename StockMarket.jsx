@@ -10,6 +10,18 @@ const StockMarket = ({ user, fetchUserList }) => {
   const [sellQtys, setSellQtys] = useState({});
   const [candleHistory, setCandleHistory] = useState({});
 
+  // 1. 로그인 여부 확인 (최상단 가드)
+  if (!user) {
+    return (
+      <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
+        <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-20 text-stroke">Access Denied</h2>
+        <h3 className="text-4xl font-black text-red-600 italic tracking-tighter uppercase mb-6">Authentication Required</h3>
+        <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">Please login to access the exchange</p>
+        <div className="w-24 h-1 bg-red-900/30"></div>
+      </div>
+    );
+  }
+
   const checkMarketStatus = () => {
     const now = new Date();
     const hour = now.getHours();
@@ -17,7 +29,6 @@ const StockMarket = ({ user, fetchUserList }) => {
   };
 
   const fetchMarketData = async () => {
-    if (!user) return;
     try {
       const { data: stockData } = await supabaseClient
         .from('stocks')
@@ -57,11 +68,8 @@ const StockMarket = ({ user, fetchUserList }) => {
 
     if (openStatus) {
       fetchMarketData();
-      
-      // 1. 공통: 5초마다 서버에서 최신 가격 읽어오기
       const fetchInterval = setInterval(fetchMarketData, 5000);
 
-      // 2. 관리자 전용: 관리자가 접속 중일 때만 5초마다 주가 변동 및 서버 업데이트
       let simulateInterval = null;
       if (user?.is_admin) {
         simulateInterval = setInterval(async () => {
@@ -69,16 +77,14 @@ const StockMarket = ({ user, fetchUserList }) => {
           if (!currentStocks) return;
 
           for (const stock of currentStocks) {
-            // 변동폭: -3.5% ~ +3.5%
             const changePercent = parseFloat((Math.random() * 7 - 3.5).toFixed(2));
             const newPrice = Math.max(100, Math.round(stock.current_price * (1 + changePercent / 100)));
-            
             await supabaseClient.from('stocks').update({ 
               current_price: newPrice, 
               change_rate: changePercent 
             }).eq('id', stock.id);
           }
-        }, 5000); // 5초 주기로 단축
+        }, 5000);
       }
 
       return () => {
@@ -172,7 +178,6 @@ const StockMarket = ({ user, fetchUserList }) => {
 
   return (
     <div className="max-w-7xl mx-auto pt-24 px-8 pb-32">
-      {/* HEADER */}
       <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
         <div>
           <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2">Exchange</h2>
@@ -186,7 +191,6 @@ const StockMarket = ({ user, fetchUserList }) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-        {/* MARKET BOARD */}
         <div className="lg:col-span-2 space-y-4">
           <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-6 italic">Market Board</h3>
           {stocks.map(stock => {
@@ -211,51 +215,4 @@ const StockMarket = ({ user, fetchUserList }) => {
                       <input type="number" value={currentBuyQty} onChange={(e) => handleQtyInput(stock.id, e.target.value, setBuyQtys)} className="w-12 bg-transparent text-white text-center font-black text-xs outline-none" />
                       <button onClick={() => setBuyQtys({...buyQtys, [stock.id]: maxBuy})} className="px-2 text-[8px] font-black bg-zinc-900 text-zinc-500 hover:text-white border-l border-zinc-800 uppercase">Max</button>
                     </div>
-                    <button onClick={() => handleBuy(stock)} disabled={maxBuy === 0} className="px-6 py-2 bg-red-900/10 border border-red-900/40 text-red-600 text-[10px] font-black uppercase hover:bg-red-900 hover:text-white transition-all">Buy</button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* PORTFOLIO */}
-        <div className="bg-[#050505] border border-zinc-900 p-8 h-fit">
-          <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-8 italic">Your Portfolio</h3>
-          {myStocks.length > 0 ? (
-            <div className="space-y-8">
-              {myStocks.map(ms => {
-                const currentStock = stocks.find(s => s.id === ms.stock_id);
-                const profit = currentStock ? (currentStock.current_price - ms.avg_price) * ms.quantity : 0;
-                const currentSellQty = sellQtys[ms.id] || 1;
-                return (
-                  <div key={ms.id} className="border-b border-zinc-900 pb-6 last:border-0">
-                    <div className="flex justify-between mb-2 items-end">
-                      <span className="text-white font-black italic text-lg uppercase leading-none">{currentStock?.name}</span>
-                      <span className="text-red-600 font-black text-xl leading-none">{ms.quantity} EA</span>
-                    </div>
-                    <div className="flex justify-between items-center mb-4 text-[9px] font-black uppercase tracking-tighter">
-                      <span className="text-zinc-700">Net Profit</span>
-                      <span className={profit >= 0 ? 'text-red-600' : 'text-blue-600'}>{profit >= 0 ? '+' : ''}{Math.floor(profit).toLocaleString()} PTS</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="flex bg-black border border-zinc-900 p-1 flex-1">
-                        <input type="number" value={currentSellQty} onChange={(e) => handleQtyInput(ms.id, e.target.value, setSellQtys)} className="w-full bg-transparent text-white text-center font-black text-xs outline-none" />
-                        <button onClick={() => setSellQtys({...sellQtys, [ms.id]: ms.quantity})} className="px-2 text-[8px] font-black bg-zinc-900 text-zinc-500 hover:text-white border-l border-zinc-800 uppercase">Max</button>
-                      </div>
-                      <button onClick={() => handleSell(ms)} className="flex-1 bg-transparent border border-zinc-800 text-zinc-600 text-[10px] font-black uppercase hover:border-red-600 hover:text-white transition-all py-2">Sell</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-20 border border-dashed border-zinc-900 text-zinc-800 text-[10px] uppercase tracking-widest leading-loose">No Assets Held</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-window.StockMarket = StockMarket;
+                    <button onClick={() => handleBuy(stock)} disabled={maxBuy === 0} className="px-6 py-2 bg
