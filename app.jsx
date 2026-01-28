@@ -287,7 +287,7 @@ function App() {
         )}
 
         {view === 'shop' && (
-          <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-12 duration-700 slide-in-from-bottom-full">
+          <main key="shop-view" className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-8 duration-700">
             <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
               <div>
                 <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2">Black Market</h2>
@@ -323,18 +323,18 @@ function App() {
           </main>
         )}
 
-        {view === 'stock' && (
-          <div className="animate-in slide-in-from-bottom-12 duration-700">
-            {/* 📈 window.StockMarket 컴포넌트를 호출합니다. */}
+          {view === 'stock' && (
+          <main key="stock-view" className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-12 duration-700">
             {window.StockMarket ? (
               <window.StockMarket user={user} fetchUserList={fetchUserList} />
             ) : (
-              <div className="flex items-center justify-center h-[600px] text-red-900 font-black italic text-2xl uppercase tracking-widest animate-pulse">
+              <div className="flex items-center justify-center h-[400px] text-red-900 font-black italic text-2xl animate-pulse uppercase tracking-[0.3em]">
                 Initializing Trading Systems...
               </div>
             )}
-          </div>
+          </main>
         )}
+      </div>
       </div>
 
       {/* --- 모달들: 반드시 하나의 부모 <div> 안에 포함되어야 함 --- */}
