@@ -1,205 +1,211 @@
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect } = React;
 
 const StockMarket = ({ user, fetchUserList }) => {
-  if (!user) return null;
-
   const [stocks, setStocks] = useState([]);
   const [myStocks, setMyStocks] = useState([]);
-  const [candleHistory, setCandleHistory] = useState({});
-  const [isMarketOpen, setIsMarketOpen] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [isMarketOpen, setIsMarketOpen] = useState(false);
   
-  // 수량 입력을 위한 상태 (종목 ID별로 관리)
-  const [buyQtys, setBuyQtys] = useState({});
-  const [sellQtys, setSellQtys] = useState({});
+  // 각 종목별 입력 수량을 관리하기 위한 상태
+  const [buyQuantities, setBuyQuantities] = useState({});
 
+  // 거래 시간 체크 (19:00 - 02:00)
+  const checkMarketStatus = () => {
+    const now = new Date();
+    const hour = now.getHours();
+    return hour >= 19 || hour < 2;
+  };
+
+  // 데이터 가져오기 (GitHub Actions가 업데이트한 최신 DB 값을 읽어옴)
   const fetchMarketData = async () => {
+    if (!user) return;
     try {
       const { data: stockData } = await supabaseClient
         .from('stocks')
         .select('*')
         .order('name', { ascending: true });
-      
-      if (stockData) {
-        setStocks(stockData);
-        setCandleHistory(prev => {
-          const newHistory = { ...prev };
-          stockData.forEach(stock => {
-            const history = newHistory[stock.id] || [];
-            const lastCandle = history[history.length - 1];
-            const open = lastCandle ? lastCandle.close : stock.current_price;
-            const close = stock.current_price;
-            const volatility = close * 0.003; 
-            const high = Math.max(open, close) + (Math.random() * volatility);
-            const low = Math.min(open, close) - (Math.random() * volatility);
-            newHistory[stock.id] = [...history, { open, close, high, low }].slice(-40);
-          });
-          return newHistory;
-        });
-      }
+      setStocks(stockData || []);
 
       const { data: myData } = await supabaseClient
         .from('user_stocks')
         .select('*, stocks(*)')
         .eq('user_code', user.code);
       setMyStocks(myData || []);
-    } catch (err) { console.error('Error:', err); }
+    } catch (err) {
+      console.error('Market error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    fetchMarketData();
-    const interval = setInterval(fetchMarketData, 5000);
-    return () => clearInterval(interval);
-  }, [user.code]);
+    const openStatus = checkMarketStatus();
+    setIsMarketOpen(openStatus);
 
-  // 매수 로직 (수량 반영)
+    // 시장이 열려있을 때 5초마다 DB에서 새로운 가격을 가져옵니다.
+    // (GitHub Actions가 DB를 바꾸면, 이 코드가 그걸 화면에 뿌려주는 역할만 합니다.)
+    if (openStatus) {
+      fetchMarketData();
+      const fetchInterval = setInterval(fetchMarketData, 5000);
+      return () => clearInterval(fetchInterval);
+    }
+  }, [user?.code, isMarketOpen]);
+
+  // 수량 변경 핸들러
+  const handleQuantityChange = (stockId, val, maxPossible) => {
+    let num = parseInt(val);
+    if (isNaN(num) || num < 1) num = 1;
+    if (num > maxPossible) num = maxPossible;
+    setBuyQuantities(prev => ({ ...prev, [stockId]: num }));
+  };
+
+  // 매수 로직
   const handleBuy = async (stock) => {
-    const qty = parseInt(buyQtys[stock.id]) || 1;
-    const total = stock.current_price * qty;
-    if (user.points < total) return alert('INSUFFICIENT FUNDS');
+    const qty = buyQuantities[stock.id] || 1;
+    const totalPrice = stock.current_price * qty;
+
+    if (!checkMarketStatus()) return alert('거래 시간이 종료되었습니다.');
+    if (user.points < totalPrice) return alert('크레딧이 부족합니다.');
     
+    if (!confirm(`[${stock.name}] ${qty}주를 ${totalPrice.toLocaleString()} PTS에 매수하시겠습니까?`)) return;
+
     try {
-      await supabaseClient.from('users').update({ points: user.points - total }).eq('code', user.code);
-      const { data: ex } = await supabaseClient.from('user_stocks').select('*').eq('user_code', user.code).eq('stock_id', stock.id).maybeSingle();
+      await supabaseClient.from('users').update({ points: user.points - totalPrice }).eq('code', user.code);
+      const existing = myStocks.find(s => s.stock_id === stock.id);
       
-      if (ex) await supabaseClient.from('user_stocks').update({ quantity: ex.quantity + qty }).eq('id', ex.id);
-      else await supabaseClient.from('user_stocks').insert([{ user_code: user.code, stock_id: stock.id, quantity: qty, avg_price: stock.current_price }]);
+      if (existing) {
+        await supabaseClient.from('user_stocks').update({ quantity: existing.quantity + qty }).eq('id', existing.id);
+      } else {
+        await supabaseClient.from('user_stocks').insert([{ 
+          user_code: user.code, 
+          stock_id: stock.id, 
+          quantity: qty, 
+          avg_price: stock.current_price 
+        }]);
+      }
       
-      setBuyQtys(prev => ({ ...prev, [stock.id]: 1 })); // 입력값 초기화
+      alert(`${qty}주 매수 완료`);
+      setBuyQuantities(prev => ({ ...prev, [stock.id]: 1 }));
       fetchUserList(); fetchMarketData();
-    } catch (e) { alert('ERROR'); }
+    } catch (e) { alert('거래 실패'); }
   };
 
-  // 매도 로직 (수량 반영)
+  // 매도 로직
   const handleSell = async (ownedItem) => {
-    const qty = parseInt(sellQtys[ownedItem.id]) || 1;
-    if (qty > ownedItem.quantity) return alert('EXCEEDS OWNED QUANTITY');
-    
+    if (!checkMarketStatus()) return alert('거래 시간이 종료되었습니다.');
     const stock = stocks.find(s => s.id === ownedItem.stock_id);
-    const gain = stock.current_price * qty;
-
+    if (!stock) return;
+    if (!confirm(`[${stock.name}] 보유 전량(${ownedItem.quantity}주)을 매도하시겠습니까?`)) return;
     try {
-      await supabaseClient.from('users').update({ points: user.points + gain }).eq('code', user.code);
-      if (ownedItem.quantity === qty) await supabaseClient.from('user_stocks').delete().eq('id', ownedItem.id);
-      else await supabaseClient.from('user_stocks').update({ quantity: ownedItem.quantity - qty }).eq('id', ownedItem.id);
-      
-      setSellQtys(prev => ({ ...prev, [ownedItem.id]: 1 })); // 입력값 초기화
+      const totalGain = stock.current_price * ownedItem.quantity;
+      await supabaseClient.from('users').update({ points: user.points + totalGain }).eq('code', user.code);
+      await supabaseClient.from('user_stocks').delete().eq('id', ownedItem.id);
+      alert(`매도 완료: +${totalGain.toLocaleString()} PTS`);
       fetchUserList(); fetchMarketData();
-    } catch (e) { alert('ERROR'); }
+    } catch (e) { alert('거래 실패'); }
   };
 
-  const Chart = ({ data }) => {
-    if (!data || data.length < 2) return <div className="w-60 h-16 bg-white/5 animate-pulse" />;
-    const vals = data.flatMap(d => [d.high, d.low]);
-    const min = Math.min(...vals) * 0.999, max = Math.max(...vals) * 1.001, range = max - min;
-    const h = 60, w = 240, cW = w / data.length;
+  if (!isMarketOpen) {
     return (
-      <svg width={w} height={h} className="overflow-visible">
-        {data.map((d, i) => {
-          const x = i*cW+cW/2, up = d.close >= d.open, col = up ? '#ff4d4d' : '#4d79ff';
-          return (
-            <g key={i}>
-              <line x1={x} y1={h-((d.high-min)/range)*h} x2={x} y2={h-((d.low-min)/range)*h} stroke={col} strokeWidth="1" />
-              <rect x={x-1.5} y={Math.min(h-((d.open-min)/range)*h, h-((d.close-min)/range)*h)} width="3" height={Math.max(Math.abs((h-((d.open-min)/range)*h)-(h-((d.close-min)/range)*h)), 1)} fill={col} />
-            </g>
-          );
-        })}
-      </svg>
+      <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
+        <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-20">Access Denied</h2>
+        <h3 className="text-4xl font-black text-red-600 italic tracking-tighter uppercase mb-6">Market is Closed</h3>
+        <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">Operation Hours: 19:00 - 02:00</p>
+      </div>
     );
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-black text-white p-10 font-serif">
-      <div className="max-w-[1400px] mx-auto">
-        {/* HEADER */}
-        <div className="flex justify-between items-start mb-20">
-          <div className="border-l-4 border-red-700 pl-6">
-            <h1 className="text-7xl font-black italic uppercase tracking-tighter leading-none">Exchange</h1>
-            <p className="text-zinc-700 text-[10px] tracking-[0.5em] font-bold mt-2 uppercase">● Live Trading Active</p>
-          </div>
-          <div className="text-right">
-            <p className="text-zinc-500 text-[10px] font-bold uppercase mb-1">Available Credits</p>
-            <p className="text-5xl font-black italic tracking-tighter text-red-600">{user.points.toLocaleString()} <span className="text-sm">PTS</span></p>
-          </div>
+    <div className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in fade-in zoom-in-95 duration-1000">
+      <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
+        <div>
+          <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2">Exchange</h2>
+          <p className="text-red-900 font-black tracking-[0.5em] text-[10px] uppercase animate-pulse">● System Online / Trading Active</p>
         </div>
+        <div className="text-right">
+          <span className="text-zinc-600 text-[10px] uppercase font-black block mb-2">Available Balance</span>
+          <span className="text-4xl font-black text-red-600 italic tracking-tighter">{user.points.toLocaleString()} <span className="text-sm not-italic ml-1">PTS</span></span>
+        </div>
+      </div>
 
-        <div className="grid grid-cols-12 gap-16">
-          {/* LEFT: STOCK LIST (매수) */}
-          <div className="col-span-8 space-y-4">
-            {stocks.map(stock => (
-              <div key={stock.id} className="bg-[#0a0a0a] border border-zinc-900 p-8 flex items-center justify-between group hover:border-zinc-700 transition-all">
-                <div className="w-1/4">
-                  <p className="text-zinc-800 text-[9px] font-bold uppercase mb-1 tracking-widest">{stock.id.split('-')[0]}</p>
-                  <h4 className="text-3xl font-black italic uppercase group-hover:text-red-500 transition-colors">{stock.name}</h4>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+        <div className="lg:col-span-2 space-y-4">
+          <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-6 italic">Market Board</h3>
+          {stocks.map(stock => {
+            const maxPossible = Math.floor(user.points / stock.current_price);
+            const currentQty = buyQuantities[stock.id] || 1;
+            
+            return (
+              <div key={stock.id} className="bg-[#050505] border border-zinc-900 p-8 flex items-center justify-between group hover:border-red-600 transition-all duration-500">
+                <div className="flex-1">
+                  <span className="text-zinc-600 font-mono text-[10px] uppercase">{stock.symbol}</span>
+                  <h4 className="text-2xl font-black text-white italic group-hover:text-red-500 transition-colors uppercase">{stock.name}</h4>
                 </div>
-                <div className="flex-1 flex justify-center"><Chart data={candleHistory[stock.id]} /></div>
-                <div className="w-1/3 flex items-center justify-end gap-4">
-                  <div className="text-right">
-                    <span className="text-3xl font-black italic block leading-none">{stock.current_price.toLocaleString()}</span>
-                    <span className={`text-[10px] font-bold ${stock.change_rate >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
-                      {stock.change_rate >= 0 ? '+' : ''}{stock.change_rate}%
+                
+                <div className="flex items-center gap-8">
+                  <div className="text-right min-w-[120px]">
+                    <span className="text-2xl font-black text-white italic block">{stock.current_price.toLocaleString()}</span>
+                    <span className={`text-xs font-bold ${stock.change_rate >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                      {stock.change_rate >= 0 ? '▲' : '▼'} {Math.abs(stock.change_rate)}%
                     </span>
                   </div>
-                  {/* 수량 지정 UI */}
-                  <div className="flex flex-col gap-1 w-24">
-                    <div className="flex border border-zinc-800">
+
+                  <div className="flex flex-col gap-2">
+                    <div className="flex bg-black border border-zinc-800 p-1">
                       <input 
                         type="number" 
-                        value={buyQtys[stock.id] || 1}
-                        onChange={(e) => setBuyQtys({...buyQtys, [stock.id]: e.target.value})}
-                        className="w-full bg-black text-white text-[10px] font-black p-1 text-center outline-none"
+                        value={currentQty}
+                        onChange={(e) => handleQuantityChange(stock.id, e.target.value, maxPossible)}
+                        className="w-16 bg-transparent text-white text-center font-black text-sm focus:outline-none"
                       />
                       <button 
-                        onClick={() => setBuyQtys({...buyQtys, [stock.id]: Math.floor(user.points / stock.current_price)})}
-                        className="bg-zinc-900 px-1 text-[8px] text-zinc-500 font-bold border-l border-zinc-800 hover:text-white"
-                      >MAX</button>
+                        onClick={() => handleQuantityChange(stock.id, maxPossible, maxPossible)}
+                        className="px-2 py-1 text-[9px] font-black bg-zinc-900 text-zinc-500 hover:text-white transition-colors"
+                      >
+                        MAX
+                      </button>
                     </div>
-                    <button onClick={() => handleBuy(stock)} className="w-full py-2 bg-red-900/10 border border-red-900/40 text-red-600 text-[10px] font-black uppercase hover:bg-red-900 hover:text-white transition-all">Buy</button>
+                    <button 
+                      onClick={() => handleBuy(stock)} 
+                      disabled={maxPossible === 0}
+                      className={`px-8 py-3 text-xs font-black uppercase transition-all ${maxPossible === 0 ? 'bg-zinc-900 text-zinc-700 cursor-not-allowed' : 'bg-red-900/10 border border-red-900/40 text-red-600 hover:bg-red-900 hover:text-white'}`}
+                    >
+                      Buy {currentQty > 1 && `${currentQty}EA`}
+                    </button>
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
+        </div>
 
-          {/* RIGHT: PORTFOLIO (매도) */}
-          <div className="col-span-4 space-y-8">
-            <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.3em] uppercase italic mb-6">Your Portfolio</h3>
-            {myStocks.length > 0 ? myStocks.map(ms => {
-              const currentStock = stocks.find(s => s.id === ms.stock_id);
-              const profit = currentStock ? (currentStock.current_price - ms.avg_price) * ms.quantity : 0;
-              return (
-                <div key={ms.id} className="bg-[#0a0a0a]/50 border-b border-zinc-900 p-6 mb-4 last:border-0">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h5 className="text-white font-black italic text-xl uppercase leading-none">{currentStock?.name}</h5>
-                      <p className={`text-[9px] font-bold mt-1 ${profit >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
-                        NET PROFIT: {profit >= 0 ? '+' : ''}{Math.floor(profit).toLocaleString()} PTS
-                      </p>
+        <div className="bg-[#050505] border border-zinc-900 p-8 h-fit">
+          <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-8 italic">Your Portfolio</h3>
+          {myStocks.length > 0 ? (
+            <div className="space-y-6">
+              {myStocks.map(ms => {
+                const currentStock = stocks.find(s => s.id === ms.stock_id);
+                const profit = currentStock ? (currentStock.current_price - ms.avg_price) * ms.quantity : 0;
+                return (
+                  <div key={ms.id} className="border-b border-zinc-900 pb-6 last:border-0">
+                    <div className="flex justify-between mb-2 text-zinc-400 font-black italic uppercase">
+                      <span>{currentStock?.name}</span>
+                      <span className="text-red-600">{ms.quantity} EA</span>
                     </div>
-                    <span className="text-red-600 font-black text-2xl tracking-tighter">{ms.quantity} <span className="text-[10px] text-zinc-800 uppercase not-italic font-bold">EA</span></span>
-                  </div>
-                  {/* 판매 수량 지정 UI */}
-                  <div className="flex gap-2 h-8">
-                    <div className="flex flex-1 border border-zinc-900 bg-black">
-                      <input 
-                        type="number" 
-                        value={sellQtys[ms.id] || 1}
-                        onChange={(e) => setSellQtys({...sellQtys, [ms.id]: e.target.value})}
-                        className="w-full bg-transparent text-white text-[10px] font-black p-1 text-center outline-none"
-                      />
-                      <button 
-                        onClick={() => setSellQtys({...sellQtys, [ms.id]: ms.quantity})}
-                        className="bg-zinc-900 px-2 text-[8px] text-zinc-600 font-bold border-l border-zinc-900 hover:text-white"
-                      >MAX</button>
+                    <div className="flex justify-between items-center mb-4 text-[10px]">
+                      <span className="text-zinc-700 uppercase font-black">Total Profit</span>
+                      <span className={`font-black ${profit >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                        {profit >= 0 ? '+' : ''}{profit.toLocaleString()}
+                      </span>
                     </div>
-                    <button 
-                      onClick={() => handleSell(ms)}
-                      className="flex-1 bg-transparent border border-zinc-800 text-zinc-600 text-[9px] font-black uppercase hover:border-red-600 hover:text-white transition-all"
-                    >Liquidate</button>
+                    <button onClick={() => handleSell(ms)} className="w-full border border-zinc-800 py-2 text-[10px] font-black text-zinc-600 hover:text-white hover:border-white transition-all uppercase tracking-widest">Liquidate All</button>
                   </div>
-                </div>
-              );
-            }) : <p className="text-zinc-800 font-black italic text-center py-20 uppercase tracking-widest">Empty</p>}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-20 border border-dashed border-zinc-900 text-zinc-800 text-[10px] uppercase tracking-widest">No Assets Held</div>
+          )}
         </div>
       </div>
     </div>
