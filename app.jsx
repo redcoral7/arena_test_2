@@ -266,7 +266,7 @@ function App() {
     }
   };
 
-  return (
+return (
     <div className="min-h-screen bg-black text-zinc-400 font-serif selection:bg-red-900 selection:text-white overflow-x-hidden">
       <nav className="px-8 py-4 flex justify-between items-center border-b border-red-950/30 bg-black/90 backdrop-blur-xl sticky top-0 z-50">
         <div className="flex items-center gap-12">
@@ -288,10 +288,11 @@ function App() {
           ) : <button onClick={() => setIsLoginOpen(true)} className="text-red-700 font-black text-[11px] border border-red-900 px-8 py-2 hover:bg-red-900 hover:text-white transition-all duration-300 italic tracking-[0.2em]">LOGIN</button>}
         </div>
       </nav>
-{/* --- [수정] 메인 컨텐츠 영역: 다중 조건부 렌더링 --- */}
-      <div>
+
+      {/* 메인 컨텐츠 영역: 각 view 전환 시 부드러운 상승 효과 적용 */}
+      <div className="relative">
         {view === 'home' && (
-          <main className="flex flex-col items-center justify-center pt-60 text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
+          <main className="flex flex-col items-center justify-center pt-60 text-center px-6 animate-in fade-in slide-in-from-bottom-8 duration-1000 ease-out">
             <h1 className="text-[90px] font-black text-white italic tracking-tighter leading-none mb-6 uppercase">"Arena Never Sleeps"</h1>
             <div className="w-24 h-[1px] bg-red-900 mb-8"></div>
             <p className="text-zinc-700 italic text-xl tracking-[0.3em] uppercase">The victory is the only record.</p>
@@ -299,7 +300,7 @@ function App() {
         )}
 
         {view === 'shop' && (
-          <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-12 duration-700 slide-in-from-bottom-full">
+          <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in fade-in slide-in-from-bottom-10 duration-700 ease-out">
             <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
               <div>
                 <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2">Black Market</h2>
@@ -335,9 +336,8 @@ function App() {
           </main>
         )}
 
-        {/* 3. 주식 시장 화면 */}
         {view === 'stock' && (
-          <div className="animate-in slide-in-from-bottom-12 duration-700 slide-in-from-bottom-full">
+          <div className="animate-in fade-in slide-in-from-bottom-10 duration-700 ease-out">
             <window.StockMarket user={user} fetchUserList={fetchUserList} />
           </div>
         )}
