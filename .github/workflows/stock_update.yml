@@ -1,0 +1,23 @@
+name: Stock-Scheduler-5s
+
+on:
+  schedule:
+    - cron: '*/1 * * * *' # 1분마다 이 '작업'을 시작함
+
+jobs:
+  update-stocks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sequential Updates every 5 seconds
+        run: |
+          # 1분(60초) 동안 5초 간격으로 12번 실행 시도
+          for i in {1..12}
+          do
+            curl -X POST "https://vvvsuoadoawdivzyjmnh.supabase.co/rest/v1/rpc/update_stock_prices_randomly" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+            
+            echo "Update $i completed. Sleeping 5s..."
+            sleep 5
+          done
