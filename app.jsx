@@ -582,11 +582,6 @@ function App() {
           <span className="group-hover:animate-bounce">💬</span>
         </button>
       )}
-      
-      {view === 'stock' && (
-        user ? <window.StockMarket user={user} fetchUserList={fetchData} /> 
-             : <div className="text-center">로그인이 필요합니다.</div>
-      )}
 
     </div>
   );
