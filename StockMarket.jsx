@@ -10,14 +10,14 @@ const StockMarket = ({ user, fetchUserList }) => {
   const [sellQtys, setSellQtys] = useState({});
   const [candleHistory, setCandleHistory] = useState({});
 
-  // 1. 로그인 여부 확인 (최상단 가드)
+  // 1. 로그인 체크 가드
   if (!user) {
     return (
       <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
-        <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-20 text-stroke">Access Denied</h2>
+        <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-10">No Access</h2>
         <h3 className="text-4xl font-black text-red-600 italic tracking-tighter uppercase mb-6">Authentication Required</h3>
-        <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">Please login to access the exchange</p>
-        <div className="w-24 h-1 bg-red-900/30"></div>
+        <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">로그인 후 이용 가능합니다.</p>
+        <div className="w-20 h-px bg-red-900/50"></div>
       </div>
     );
   }
@@ -68,8 +68,10 @@ const StockMarket = ({ user, fetchUserList }) => {
 
     if (openStatus) {
       fetchMarketData();
+      // 5초마다 시세 동기화
       const fetchInterval = setInterval(fetchMarketData, 5000);
 
+      // 관리자일 경우 5초마다 주가 변동 서버 업데이트
       let simulateInterval = null;
       if (user?.is_admin) {
         simulateInterval = setInterval(async () => {
@@ -169,7 +171,7 @@ const StockMarket = ({ user, fetchUserList }) => {
   if (!isMarketOpen) {
     return (
       <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
-        <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-20">Access Denied</h2>
+        <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-10">Closed</h2>
         <h3 className="text-4xl font-black text-red-600 italic tracking-tighter uppercase mb-6">Market is Closed</h3>
         <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">Operation Hours: 19:00 - 05:00</p>
       </div>
@@ -177,15 +179,15 @@ const StockMarket = ({ user, fetchUserList }) => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto pt-24 px-8 pb-32">
+    <div className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in fade-in duration-1000">
       <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
         <div>
-          <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2">Exchange</h2>
-          <p className="text-red-900 font-black tracking-[0.5em] text-[10px] uppercase animate-pulse">● System Online / Trading Active</p>
-          {user?.is_admin && <p className="text-red-500 text-[8px] font-black mt-2 uppercase">Admin Live Update: 5s Interval</p>}
+          <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2 leading-none">Exchange</h2>
+          <p className="text-red-900 font-black tracking-[0.5em] text-[10px] uppercase animate-pulse leading-none mt-2">● Live Trading Active</p>
+          {user?.is_admin && <p className="text-red-500 text-[8px] font-black mt-2 uppercase">Admin Sync: 5s</p>}
         </div>
         <div className="text-right">
-          <span className="text-zinc-600 text-[10px] uppercase font-black block mb-2">Available Balance</span>
+          <span className="text-zinc-600 text-[10px] uppercase font-black block mb-2">Available Credits</span>
           <span className="text-4xl font-black text-red-600 italic tracking-tighter">{user.points.toLocaleString()} <span className="text-sm not-italic ml-1">PTS</span></span>
         </div>
       </div>
@@ -197,7 +199,7 @@ const StockMarket = ({ user, fetchUserList }) => {
             const maxBuy = Math.floor(user.points / stock.current_price);
             const currentBuyQty = buyQtys[stock.id] || 1;
             return (
-              <div key={stock.id} className="bg-[#050505] border border-zinc-900 p-8 flex items-center justify-between group hover:border-red-600 transition-all">
+              <div key={stock.id} className="bg-[#050505] border border-zinc-900 p-8 flex items-center justify-between group hover:border-red-600 transition-all duration-300">
                 <div className="w-1/4">
                   <span className="text-zinc-600 font-mono text-[10px] uppercase">{stock.symbol}</span>
                   <h4 className="text-2xl font-black text-white italic group-hover:text-red-500 transition-colors uppercase leading-none">{stock.name}</h4>
@@ -215,4 +217,50 @@ const StockMarket = ({ user, fetchUserList }) => {
                       <input type="number" value={currentBuyQty} onChange={(e) => handleQtyInput(stock.id, e.target.value, setBuyQtys)} className="w-12 bg-transparent text-white text-center font-black text-xs outline-none" />
                       <button onClick={() => setBuyQtys({...buyQtys, [stock.id]: maxBuy})} className="px-2 text-[8px] font-black bg-zinc-900 text-zinc-500 hover:text-white border-l border-zinc-800 uppercase">Max</button>
                     </div>
-                    <button onClick={() => handleBuy(stock)} disabled={maxBuy === 0} className="px-6 py-2 bg
+                    <button onClick={() => handleBuy(stock)} disabled={maxBuy === 0} className="px-6 py-2 bg-red-900/10 border border-red-900/40 text-red-600 text-[10px] font-black uppercase hover:bg-red-900 hover:text-white transition-all">Buy</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="bg-[#050505] border border-zinc-900 p-8 h-fit">
+          <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-8 italic">Your Portfolio</h3>
+          {myStocks.length > 0 ? (
+            <div className="space-y-8">
+              {myStocks.map(ms => {
+                const currentStock = stocks.find(s => s.id === ms.stock_id);
+                const profit = currentStock ? (currentStock.current_price - ms.avg_price) * ms.quantity : 0;
+                const currentSellQty = sellQtys[ms.id] || 1;
+                return (
+                  <div key={ms.id} className="border-b border-zinc-900 pb-6 last:border-0">
+                    <div className="flex justify-between mb-2 items-end">
+                      <span className="text-white font-black italic text-lg uppercase leading-none">{currentStock?.name}</span>
+                      <span className="text-red-600 font-black text-xl leading-none">{ms.quantity} EA</span>
+                    </div>
+                    <div className="flex justify-between items-center mb-4 text-[9px] font-black uppercase tracking-tighter">
+                      <span className="text-zinc-700">Profit</span>
+                      <span className={profit >= 0 ? 'text-red-600' : 'text-blue-600'}>{profit >= 0 ? '+' : ''}{Math.floor(profit).toLocaleString()} PTS</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="flex bg-black border border-zinc-800 p-1 flex-1">
+                        <input type="number" value={currentSellQty} onChange={(e) => handleQtyInput(ms.id, e.target.value, setSellQtys)} className="w-full bg-transparent text-white text-center font-black text-xs outline-none" />
+                        <button onClick={() => setSellQtys({...sellQtys, [ms.id]: ms.quantity})} className="px-2 text-[8px] font-black bg-zinc-900 text-zinc-500 hover:text-white border-l border-zinc-800 uppercase">Max</button>
+                      </div>
+                      <button onClick={() => handleSell(ms)} className="flex-1 bg-transparent border border-zinc-800 text-zinc-600 text-[10px] font-black uppercase hover:border-red-600 hover:text-white transition-all py-2">Sell</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-20 border border-dashed border-zinc-900 text-zinc-800 text-[10px] uppercase tracking-widest leading-loose">No Assets Held</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+window.StockMarket = StockMarket;
