@@ -1,6 +1,7 @@
 const { useState, useEffect, useRef } = React;
 
 const StockMarket = ({ user, fetchUserList }) => {
+  // Hook 설정 (최상단 배치)
   const [stocks, setStocks] = useState([]);
   const [myStocks, setMyStocks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -9,18 +10,8 @@ const StockMarket = ({ user, fetchUserList }) => {
   const [buyQtys, setBuyQtys] = useState({});
   const [sellQtys, setSellQtys] = useState({});
   const [candleHistory, setCandleHistory] = useState({});
-
-  // 1. 로그인 체크 가드
-  if (!user) {
-    return (
-      <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
-        <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-10">No Access</h2>
-        <h3 className="text-4xl font-black text-red-600 italic tracking-tighter uppercase mb-6">Authentication Required</h3>
-        <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">로그인 후 이용 가능합니다.</p>
-        <div className="w-20 h-px bg-red-900/50"></div>
-      </div>
-    );
-  }
+  
+  const workerRef = useRef(null); // 백그라운드 실행용 워커 참조
 
   const checkMarketStatus = () => {
     const now = new Date();
@@ -29,6 +20,7 @@ const StockMarket = ({ user, fetchUserList }) => {
   };
 
   const fetchMarketData = async () => {
+    if (!user) return;
     try {
       const { data: stockData } = await supabaseClient
         .from('stocks')
@@ -63,18 +55,30 @@ const StockMarket = ({ user, fetchUserList }) => {
   };
 
   useEffect(() => {
+    if (!user) return;
+
     const openStatus = checkMarketStatus();
     setIsMarketOpen(openStatus);
 
     if (openStatus) {
       fetchMarketData();
-      // 5초마다 시세 동기화
+      
+      // 1. 공통 시세 읽기 (5초)
       const fetchInterval = setInterval(fetchMarketData, 5000);
 
-      // 관리자일 경우 5초마다 주가 변동 서버 업데이트
-      let simulateInterval = null;
+      // 2. 관리자 전용: 백그라운드 업데이트 워커 가동
       if (user?.is_admin) {
-        simulateInterval = setInterval(async () => {
+        // 백그라운드에서 멈추지 않는 별도 쓰레드 생성
+        const workerCode = `
+          setInterval(() => {
+            postMessage('tick');
+          }, 5000);
+        `;
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        workerRef.current = new Worker(URL.createObjectURL(blob));
+
+        workerRef.current.onmessage = async () => {
+          // 이 영역은 탭이 비활성화되어도 5초마다 실행됩니다.
           const { data: currentStocks } = await supabaseClient.from('stocks').select('*');
           if (!currentStocks) return;
 
@@ -86,15 +90,27 @@ const StockMarket = ({ user, fetchUserList }) => {
               change_rate: changePercent 
             }).eq('id', stock.id);
           }
-        }, 5000);
+          console.log("Admin Background Update Sync Success");
+        };
       }
 
       return () => {
         clearInterval(fetchInterval);
-        if (simulateInterval) clearInterval(simulateInterval);
+        if (workerRef.current) workerRef.current.terminate();
       };
     }
   }, [user?.code, user?.is_admin, isMarketOpen]);
+
+  // 로그인 체크 UI
+  if (!user) {
+    return (
+      <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-6">
+        <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-10">Access Denied</h2>
+        <h3 className="text-4xl font-black text-red-600 italic tracking-tighter uppercase mb-6">Authentication Required</h3>
+        <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">로그인 후 이용 가능합니다.</p>
+      </div>
+    );
+  }
 
   const handleQtyInput = (id, val, setter) => {
     const num = parseInt(val) || 1;
@@ -124,7 +140,6 @@ const StockMarket = ({ user, fetchUserList }) => {
   const handleSell = async (ownedItem) => {
     const qty = sellQtys[ownedItem.id] || 1;
     if (qty > ownedItem.quantity) return alert('보유 수량을 초과했습니다.');
-    if (!checkMarketStatus()) return alert('거래 시간이 종료되었습니다.');
     const stock = stocks.find(s => s.id === ownedItem.stock_id);
     if (!stock) return;
     if (!confirm(`[${stock.name}] ${qty}주를 매도하시겠습니까?`)) return;
@@ -151,16 +166,11 @@ const StockMarket = ({ user, fetchUserList }) => {
       <svg width={w} height={h} className="overflow-visible">
         {data.map((d, i) => {
           const x = i * cW + cW / 2;
-          const isUp = d.close >= d.open;
-          const color = isUp ? '#ff4d4d' : '#4d79ff';
-          const yH = h - ((d.high - min) / range) * h;
-          const yL = h - ((d.low - min) / range) * h;
-          const yO = h - ((d.open - min) / range) * h;
-          const yC = h - ((d.close - min) / range) * h;
+          const color = d.close >= d.open ? '#ff4d4d' : '#4d79ff';
           return (
             <g key={i}>
-              <line x1={x} y1={yH} x2={x} y2={yL} stroke={color} strokeWidth="1" />
-              <rect x={x - 1.5} y={Math.min(yO, yC)} width="3" height={Math.max(Math.abs(yO - yC), 1)} fill={color} />
+              <line x1={x} y1={h - ((d.high - min) / range) * h} x2={x} y2={h - ((d.low - min) / range) * h} stroke={color} strokeWidth="1" />
+              <rect x={x - 1.5} y={Math.min(h - ((d.open - min) / range) * h, h - ((d.close - min) / range) * h)} width="3" height={Math.max(Math.abs(((d.open - d.close) / range) * h), 1)} fill={color} />
             </g>
           );
         })}
@@ -170,93 +180,79 @@ const StockMarket = ({ user, fetchUserList }) => {
 
   if (!isMarketOpen) {
     return (
-      <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-6 animate-in fade-in zoom-in-95 duration-1000">
+      <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-6">
         <h2 className="text-8xl font-black text-white italic tracking-tighter uppercase mb-4 opacity-10">Closed</h2>
         <h3 className="text-4xl font-black text-red-600 italic tracking-tighter uppercase mb-6">Market is Closed</h3>
-        <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">Operation Hours: 19:00 - 05:00</p>
+        <p className="text-zinc-600 font-bold tracking-[0.3em] uppercase text-sm mb-12">운영 시간: 19:00 - 05:00</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in fade-in duration-1000">
+    <div className="max-w-7xl mx-auto pt-24 px-8 pb-32">
       <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
         <div>
-          <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2 leading-none">Exchange</h2>
-          <p className="text-red-900 font-black tracking-[0.5em] text-[10px] uppercase animate-pulse leading-none mt-2">● Live Trading Active</p>
-          {user?.is_admin && <p className="text-red-500 text-[8px] font-black mt-2 uppercase">Admin Sync: 5s</p>}
+          <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2">Exchange</h2>
+          <p className="text-red-900 font-black tracking-[0.5em] text-[10px] uppercase animate-pulse mt-2">● System Active</p>
+          {user?.is_admin && <p className="text-red-500 text-[8px] font-black mt-2 uppercase tracking-widest">Worker Sync: 5s / Background Alive</p>}
         </div>
         <div className="text-right">
-          <span className="text-zinc-600 text-[10px] uppercase font-black block mb-2">Available Credits</span>
-          <span className="text-4xl font-black text-red-600 italic tracking-tighter">{user.points.toLocaleString()} <span className="text-sm not-italic ml-1">PTS</span></span>
+          <span className="text-zinc-600 text-[10px] uppercase font-black block mb-2 tracking-widest">Available Balance</span>
+          <span className="text-4xl font-black text-red-600 italic tracking-tighter">{user.points.toLocaleString()} PTS</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="lg:col-span-2 space-y-4">
-          <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-6 italic">Market Board</h3>
-          {stocks.map(stock => {
-            const maxBuy = Math.floor(user.points / stock.current_price);
-            const currentBuyQty = buyQtys[stock.id] || 1;
-            return (
-              <div key={stock.id} className="bg-[#050505] border border-zinc-900 p-8 flex items-center justify-between group hover:border-red-600 transition-all duration-300">
-                <div className="w-1/4">
-                  <span className="text-zinc-600 font-mono text-[10px] uppercase">{stock.symbol}</span>
-                  <h4 className="text-2xl font-black text-white italic group-hover:text-red-500 transition-colors uppercase leading-none">{stock.name}</h4>
+          {stocks.map(stock => (
+            <div key={stock.id} className="bg-[#050505] border border-zinc-900 p-8 flex items-center justify-between group hover:border-red-600 transition-all duration-300">
+              <div className="w-1/4">
+                <span className="text-zinc-600 font-mono text-[10px] uppercase">{stock.symbol}</span>
+                <h4 className="text-2xl font-black text-white italic group-hover:text-red-500 uppercase leading-none">{stock.name}</h4>
+              </div>
+              <div className="flex-1 flex justify-center"><CandleChart data={candleHistory[stock.id]} /></div>
+              <div className="flex items-center gap-6">
+                <div className="text-right min-w-[100px]">
+                  <span className="text-2xl font-black text-white italic block">{stock.current_price.toLocaleString()}</span>
+                  <span className={`text-xs font-bold ${stock.change_rate >= 0 ? 'text-red-600' : 'text-blue-600'}`}>{stock.change_rate >= 0 ? '▲' : '▼'} {Math.abs(stock.change_rate)}%</span>
                 </div>
-                <div className="flex-1 flex justify-center"><CandleChart data={candleHistory[stock.id]} /></div>
-                <div className="flex items-center gap-6">
-                  <div className="text-right min-w-[100px]">
-                    <span className="text-2xl font-black text-white italic block">{stock.current_price.toLocaleString()}</span>
-                    <span className={`text-xs font-bold ${stock.change_rate >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                      {stock.change_rate >= 0 ? '▲' : '▼'} {Math.abs(stock.change_rate)}%
-                    </span>
+                <div className="flex flex-col gap-2">
+                  <div className="flex bg-black border border-zinc-800 p-1">
+                    <input type="number" value={buyQtys[stock.id] || 1} onChange={(e) => handleQtyInput(stock.id, e.target.value, setBuyQtys)} className="w-12 bg-transparent text-white text-center font-black text-xs outline-none" />
+                    <button onClick={() => setBuyQtys({...buyQtys, [stock.id]: Math.floor(user.points / stock.current_price)})} className="px-2 text-[8px] font-black bg-zinc-900 text-zinc-500 hover:text-white border-l border-zinc-800 uppercase">Max</button>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex bg-black border border-zinc-800 p-1">
-                      <input type="number" value={currentBuyQty} onChange={(e) => handleQtyInput(stock.id, e.target.value, setBuyQtys)} className="w-12 bg-transparent text-white text-center font-black text-xs outline-none" />
-                      <button onClick={() => setBuyQtys({...buyQtys, [stock.id]: maxBuy})} className="px-2 text-[8px] font-black bg-zinc-900 text-zinc-500 hover:text-white border-l border-zinc-800 uppercase">Max</button>
-                    </div>
-                    <button onClick={() => handleBuy(stock)} disabled={maxBuy === 0} className="px-6 py-2 bg-red-900/10 border border-red-900/40 text-red-600 text-[10px] font-black uppercase hover:bg-red-900 hover:text-white transition-all">Buy</button>
-                  </div>
+                  <button onClick={() => handleBuy(stock)} className="px-6 py-2 bg-red-900/10 border border-red-900/40 text-red-600 text-[10px] font-black uppercase hover:bg-red-900 hover:text-white transition-all">Buy</button>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
 
         <div className="bg-[#050505] border border-zinc-900 p-8 h-fit">
           <h3 className="text-zinc-700 font-black text-[11px] tracking-[0.4em] uppercase mb-8 italic">Your Portfolio</h3>
-          {myStocks.length > 0 ? (
-            <div className="space-y-8">
-              {myStocks.map(ms => {
-                const currentStock = stocks.find(s => s.id === ms.stock_id);
-                const profit = currentStock ? (currentStock.current_price - ms.avg_price) * ms.quantity : 0;
-                const currentSellQty = sellQtys[ms.id] || 1;
-                return (
-                  <div key={ms.id} className="border-b border-zinc-900 pb-6 last:border-0">
-                    <div className="flex justify-between mb-2 items-end">
-                      <span className="text-white font-black italic text-lg uppercase leading-none">{currentStock?.name}</span>
-                      <span className="text-red-600 font-black text-xl leading-none">{ms.quantity} EA</span>
-                    </div>
-                    <div className="flex justify-between items-center mb-4 text-[9px] font-black uppercase tracking-tighter">
-                      <span className="text-zinc-700">Profit</span>
-                      <span className={profit >= 0 ? 'text-red-600' : 'text-blue-600'}>{profit >= 0 ? '+' : ''}{Math.floor(profit).toLocaleString()} PTS</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="flex bg-black border border-zinc-800 p-1 flex-1">
-                        <input type="number" value={currentSellQty} onChange={(e) => handleQtyInput(ms.id, e.target.value, setSellQtys)} className="w-full bg-transparent text-white text-center font-black text-xs outline-none" />
-                        <button onClick={() => setSellQtys({...sellQtys, [ms.id]: ms.quantity})} className="px-2 text-[8px] font-black bg-zinc-900 text-zinc-500 hover:text-white border-l border-zinc-800 uppercase">Max</button>
-                      </div>
-                      <button onClick={() => handleSell(ms)} className="flex-1 bg-transparent border border-zinc-800 text-zinc-600 text-[10px] font-black uppercase hover:border-red-600 hover:text-white transition-all py-2">Sell</button>
-                    </div>
+          {myStocks.length > 0 ? myStocks.map(ms => {
+            const currentStock = stocks.find(s => s.id === ms.stock_id);
+            const profit = currentStock ? (currentStock.current_price - ms.avg_price) * ms.quantity : 0;
+            return (
+              <div key={ms.id} className="border-b border-zinc-900 pb-6 mb-6 last:border-0">
+                <div className="flex justify-between mb-2 items-end">
+                  <span className="text-white font-black italic text-lg uppercase leading-none">{currentStock?.name}</span>
+                  <span className="text-red-600 font-black text-xl leading-none">{ms.quantity} EA</span>
+                </div>
+                <div className="flex justify-between text-[9px] font-black uppercase mb-4 tracking-tighter">
+                  <span className="text-zinc-700">Net Profit</span>
+                  <span className={profit >= 0 ? 'text-red-600' : 'text-blue-600'}>{profit >= 0 ? '+' : ''}{Math.floor(profit).toLocaleString()} PTS</span>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex bg-black border border-zinc-800 p-1 flex-1">
+                    <input type="number" value={sellQtys[ms.id] || 1} onChange={(e) => handleQtyInput(ms.id, e.target.value, setSellQtys)} className="w-full bg-transparent text-white text-center font-black text-xs outline-none" />
+                    <button onClick={() => setSellQtys({...sellQtys, [ms.id]: ms.quantity})} className="px-2 text-[8px] font-black bg-zinc-900 text-zinc-500 hover:text-white border-l border-zinc-800 uppercase">Max</button>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-20 border border-dashed border-zinc-900 text-zinc-800 text-[10px] uppercase tracking-widest leading-loose">No Assets Held</div>
-          )}
+                  <button onClick={() => handleSell(ms)} className="flex-1 bg-transparent border border-zinc-800 text-zinc-600 text-[10px] font-black uppercase hover:border-red-600 hover:text-white transition-all py-2">Sell</button>
+                </div>
+              </div>
+            );
+          }) : <div className="text-center py-20 text-zinc-800 text-[10px] uppercase tracking-widest leading-loose border border-dashed border-zinc-900">No Assets Held</div>}
         </div>
       </div>
     </div>
