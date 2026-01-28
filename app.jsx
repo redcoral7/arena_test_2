@@ -299,7 +299,7 @@ function App() {
         )}
 
         {view === 'shop' && (
-          <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in slide-in-from-bottom-12 duration-700 slide-in-from-bottom-full">
+          <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in fade-in zoom-in-95 slide-in-from-bottom-8 duration-700">
             <div className="flex justify-between items-end mb-16 border-l-4 border-red-900 pl-8 py-2">
               <div>
                 <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase mb-2">Black Market</h2>
@@ -337,7 +337,7 @@ function App() {
 
         {/* 3. 주식 시장 화면 */}
         {view === 'stock' && (
-          <div className="animate-in slide-in-from-bottom-12 duration-700 slide-in-from-bottom-full">
+          <main className="max-w-7xl mx-auto pt-24 px-8 pb-32 animate-in fade-in zoom-in-95 slide-in-from-bottom-8 duration-700">
             <window.StockMarket user={user} fetchUserList={fetchUserList} />
           </div>
         )}
