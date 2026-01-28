@@ -263,7 +263,8 @@ function App() {
           <div className="flex gap-10 items-center text-[11px] font-black tracking-[0.4em] uppercase">
              <button onClick={() => setView('home')} className={`transition-all duration-300 hover:text-white ${view === 'home' ? 'text-white border-b border-red-700' : 'text-zinc-600'}`}>[ HOME ]</button>
              <button onClick={() => setView('shop')} className={`transition-all duration-300 hover:text-red-500 ${view === 'shop' ? 'text-red-600 border-b border-red-700' : 'text-zinc-600'}`}>[ SHOP ]</button>
-             {user?.is_admin && <button onClick={() => setIsUserMgmtOpen(true)} className="text-red-600 hover:text-red-400 animate-pulse">[ 유저 관리 ]</button>}
+             <button onClick={() => setView('shop')} className={`transition-all duration-300 hover:text-red-500 ${view === 'shop' ? 'text-red-600 border-b border-red-700' : 'text-zinc-600'}`}>[ SHOP ]</button> 
+            {user?.is_admin && <button onClick={() => setIsUserMgmtOpen(true)} className="text-red-600 hover:text-red-400 animate-pulse">[ 유저 관리 ]</button>}
           </div>
         </div>
         <div className="flex gap-6 items-center">
@@ -319,6 +320,14 @@ function App() {
               ))}
             </div>
           </main>
+        )}
+      </div>
+
+        {/* 3. 주식 시장 화면 */}
+        {view === 'stock' && (
+          <div className="animate-in slide-in-from-bottom-12 duration-700 slide-in-from-bottom-full">
+            <window.StockMarket user={user} fetchUserList={fetchUserList} />
+          </div>
         )}
       </div>
 
