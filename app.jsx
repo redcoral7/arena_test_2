@@ -335,7 +335,6 @@ function App() {
           </main>
         )}
       </div>
-      </div>
 
       {/* --- 모달들: 반드시 하나의 부모 <div> 안에 포함되어야 함 --- */}
       <DuelRequestModal 
