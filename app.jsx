@@ -582,15 +582,16 @@ function App() {
           <span className="group-hover:animate-bounce">💬</span>
         </button>
       )}
+      
+      {view === 'stock' && (
+        user ? <window.StockMarket user={user} fetchUserList={fetchData} /> 
+             : <div className="text-center">로그인이 필요합니다.</div>
+      )}
+
     </div>
   );
 }
 
-// App.jsx 내부 렌더링 부분
-{view === 'stock' && (
-  user ? <window.StockMarket user={user} fetchUserList={fetchData} /> 
-       : <div className="text-center">로그인이 필요합니다.</div>
-)}
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
